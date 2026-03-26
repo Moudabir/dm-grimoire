@@ -656,10 +656,9 @@ export default function DMCockpit() {
   const [activeSheet,setActiveSheet]= useState<number | null>(null); // For Character Sheet Overlay
   const [sheetTab,   setSheetTab]   = useState("stats"); // 'stats' or 'spellbook'
 
-  // Auto-save system
   const [autoSaveOn,    setAutoSaveOn]    = useState(true);
   const [lastAutoSave,  setLastAutoSave]  = useState<string | null>(null);
-  const [currentSlot,   setCurrentSlot]  = useState(0);
+  const [nextAutoSlot,  setNextAutoSlot]  = useState(3); // Start at Slot 4 (index 3)
   const [toastMsg,      setToastMsg]      = useState<ToastMessage | null>(null);
   const [slotMeta,      setSlotMeta]      = useState<SlotMeta[]>(Array.from({length:NUM_SLOTS},(_,i)=>({index:i,empty:true})));
   const toastTimer = useRef(null);
@@ -688,24 +687,35 @@ export default function DMCockpit() {
     setSlotMeta(meta);
   }, []);
 
-  const performSave = useCallback(async (manual = false) => {
+  const performSave = useCallback(async (manual: boolean | number = false) => {
     try {
       const save = buildSave(stateRef.current);
-      const slot = currentSlot;
-      const ok   = await writeSlot(slot, save);
+      let slot = 0;
+      
+      if (typeof manual === "number") {
+        slot = manual;
+      } else if (manual === true) {
+        slot = 0; // Default manual save to Slot 1
+      } else {
+        slot = nextAutoSlot;
+      }
+
+      const ok = await writeSlot(slot, save);
       if (ok) {
-        const next = (slot + 1) % NUM_SLOTS;
-        setCurrentSlot(next);
+        if (manual === false) {
+          setNextAutoSlot(prev => prev === 3 ? 4 : 3);
+        }
         setLastAutoSave(save.payload.savedAt);
         await refreshSlotMeta();
-        showToast(manual ? "💾 Saved to slot " + (slot + 1) : "💾 Auto-saved", "#c9a227");
+        const slotLabel = manual === false ? " (Auto)" : " (Manual)";
+        showToast(`💾 Saved to slot ${slot + 1}${slotLabel}`, "#c9a227");
       } else {
         showToast("⚠ Save failed", "#d43020");
       }
     } catch {
       showToast("⚠ Save error", "#d43020");
     }
-  }, [currentSlot, showToast, refreshSlotMeta]);
+  }, [nextAutoSlot, showToast, refreshSlotMeta]);
 
   /* ── auto-save interval (20m) ── */
   useEffect(() => {
@@ -751,12 +761,8 @@ export default function DMCockpit() {
           setCombat(p.combat ?? false);
         }
         // Advance slot pointer past the one we just loaded
-        for (let i = 0; i < NUM_SLOTS; i++) {
-          const s = await readSlot(i);
-          if (s && !s.corrupted && s.payload.savedAt === p.savedAt) {
-            setCurrentSlot((i + 1) % NUM_SLOTS);
-            break;
-          }
+        if (best) { // Ensure 'best' is defined before using it
+          setNextAutoSlot(best.index === 3 ? 4 : 3); // Prep for the *next* auto-save
         }
         setLastAutoSave(p.savedAt);
         showToast("✓ Session restored", "#28a040");
@@ -971,7 +977,7 @@ export default function DMCockpit() {
       if(p.log)setLog(p.log);
       if(p.order&&p.order.length>0){setOrder(p.order);setTurn(p.turn??0);setCombat(p.combat??false);}
       else{setCombat(false);setOrder([]);setTurn(0);}
-      setCurrentSlot((slotIndex+1)%NUM_SLOTS);
+      // Loading stays independent of next auto-save slot for now
       setLastAutoSave(p.savedAt);
       showToast("✓ Loaded slot "+(slotIndex+1),"#28a040");
     }catch(err){showToast("⚠ Load failed: "+err.message,"#d43020");}
@@ -985,7 +991,7 @@ export default function DMCockpit() {
     if(!window.confirm("Reset all session data AND clear all save slots?"))return;
     setPlayers(INIT_PLAYERS);setEnemies([]);setLog([]);setOrder([]);setTurn(0);
     setCombat(false);setDiceResult(null);setDiceHist([]);setPurpose("");setQuickRoll(null);
-    setCurrentSlot(0);setLastAutoSave(null);
+    setNextAutoSlot(3);setLastAutoSave(null);
     for(let i=0;i<NUM_SLOTS;i++) await deleteSlotStorage(i);
     await refreshSlotMeta();
     showToast("Session reset","#888");
@@ -1437,7 +1443,7 @@ export default function DMCockpit() {
           </div>
           <div className="sess-info" style={{marginBottom:0}}>
             Players: <span>{players.length}</span> · Enemies: <span>{enemies.length}</span> · Chronicle: <span>{log.length}</span> · Combat: <span>{combat?"Active":"Inactive"}</span>
-            {" · "}Next slot: <span>{currentSlot+1}/{NUM_SLOTS}</span>
+            {" · "}Next Auto: <span>Slot {nextAutoSlot + 1}</span>
           </div>
         </div>
 
@@ -1445,20 +1451,24 @@ export default function DMCockpit() {
         <div className="sess-card">
           <div className="sess-hdg">💾 SAVE SLOTS</div>
           {slotMeta.map(s=>{
-            const isCurrent=s.index===((currentSlot-1+NUM_SLOTS)%NUM_SLOTS)&&s.valid;
+            const isAuto = s.index >= 3;
             return (
-              <div key={s.index} className={`slot-row ${s.empty?"empty":s.corrupted?"corrupt":isCurrent?"current":"valid"}`}>
-                <div className="slot-num">{s.index+1}</div>
+              <div key={s.index} className={`slot-row ${s.empty?"empty":s.corrupted?"corrupt":"valid"}`}>
+                <div className="slot-num" style={isAuto?{color:"rgba(201,162,39,.4)"}:{}}>{s.index+1}</div>
                 <div className="slot-info">
+                  <div className="slot-type" style={{fontSize:".5rem", color:isAuto?"var(--gold)":"rgba(244,228,193,.3)", letterSpacing:".1em", marginBottom:1}}>{isAuto?"AUTO-SAVE":"MANUAL"}</div>
                   {s.empty&&<div className="slot-detail">Empty slot</div>}
                   {s.corrupted&&<><div className="slot-time" style={{color:"#e06060"}}>⚠ Corrupted</div><div className="slot-detail">{s.reason}</div></>}
                   {s.valid&&<>
-                    <div className="slot-time">{fmtTime(s.savedAt)}{isCurrent?" ✓ (latest)":""}</div>
+                    <div className="slot-time">{fmtTime(s.savedAt)}</div>
                     <div className="slot-detail">{s.players}p · {s.enemies}e · {s.log} log entries</div>
                   </>}
                 </div>
-                {s.valid&&<button className="slot-btn load-btn" onClick={()=>loadFromSlot(s.index)}>LOAD</button>}
-                {(s.valid||s.corrupted)&&<button className="slot-btn del-btn" onClick={()=>deleteSlot(s.index)}>✕</button>}
+                <div style={{display:"flex", gap:4}}>
+                  <button className="slot-btn save-btn" style={{background:"rgba(201,162,39,.1)",borderColor:"rgba(201,162,39,.4)"}} onClick={()=>performSave(s.index)}>SAVE</button>
+                  {s.valid&&<button className="slot-btn load-btn" onClick={()=>loadFromSlot(s.index)}>LOAD</button>}
+                  {(s.valid||s.corrupted)&&<button className="slot-btn del-btn" onClick={()=>deleteSlot(s.index)}>✕</button>}
+                </div>
               </div>
             );
           })}
@@ -1468,7 +1478,7 @@ export default function DMCockpit() {
         {/* Export / Import */}
         <div className="sess-card">
           <div className="sess-hdg">📤 EXPORT SESSION</div>
-          <button className="sess-btn save" onClick={saveGame}>💾 Export + Save to Slot {currentSlot+1}</button>
+          <button className="sess-btn save" onClick={saveGame}>💾 Export + Save to Slot 1</button>
         </div>
         <div className="sess-card">
           <div className="sess-hdg">📂 IMPORT SESSION</div>
