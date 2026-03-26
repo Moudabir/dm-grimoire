@@ -241,8 +241,15 @@ function Section({title,badge=0,defaultOpen=true,children}){
 const CSS=`
 ${FONTS}
 *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent;}
-:root{--bg:#080402;--gold:#c9a227;--gold2:#e8c547;--parch:#f5e6c4;--ink:#2c1810;--ink2:#5a3820;--blood:#b01818;--blood2:#e03030;--arcane:#5a2d96;--border:rgba(201,162,39,.28);}
-html,body{height:100%;background:var(--bg);}
+:root{--bg:#080402;--gold:#c9a227;--gold2:#e8c547;--parch:#f5e6c4;--ink:#2c1810;--ink2:#5a3820;--blood:#b01818;--blood2:#e03030;--arcane:#5a2d96;--border:rgba(201,162,39,.28);--glass:rgba(12,7,3,.85);--glass-border:rgba(201,162,39,.2);--blur:blur(10px);}
+html,body{height:100%;background:var(--bg);overflow:hidden;}
+.glass{background:var(--glass);backdrop-filter:var(--blur);-webkit-backdrop-filter:var(--blur);border:1px solid var(--glass-border);border-radius:10px;}
+.hint-text{font-family:'Crimson Text',serif;font-style:italic;font-size:.65rem;color:rgba(201,162,39,.55);margin-top:2px;animation:su .3s ease;}
+.hud-bar{height:42px;background:rgba(201,162,39,.08);border-bottom:1px solid var(--gold);display:flex;align-items:center;padding:0 14px;gap:12px;z-index:15;backdrop-filter:blur(6px);animation:su .3s ease;}
+.hud-turn-ico{width:22px;height:22px;background:var(--gold);color:var(--ink);border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:.7rem;font-weight:700;}
+.hud-turn-name{font-family:'Cinzel',serif;font-size:.68rem;color:var(--gold);letter-spacing:.05em;}
+.hud-next{margin-left:auto;background:none;border:1px solid var(--gold);color:var(--gold);font-family:'Cinzel',serif;font-size:.55rem;padding:3px 10px;border-radius:4px;cursor:pointer;}
+
 .root{display:flex;flex-direction:column;height:100svh;background:radial-gradient(ellipse at 50% 0%,#1c0e06 0%,#060301 100%);font-family:'Crimson Text',serif;color:var(--parch);overflow:hidden;}
 .tb{flex-shrink:0;z-index:20;background:linear-gradient(180deg,#060301,rgba(6,3,1,.97));border-bottom:1.5px solid var(--gold);padding:9px 14px 7px;display:flex;align-items:center;justify-content:space-between;box-shadow:0 3px 16px rgba(201,162,39,.14);}
 .tb-t{font-family:'Cinzel Decorative',serif;font-size:.83rem;color:var(--gold);text-shadow:0 0 14px rgba(201,162,39,.5);letter-spacing:.08em;}
@@ -295,12 +302,14 @@ html,body{height:100%;background:var(--bg);}
 .st.ap{background:rgba(201,162,39,.15);color:var(--gold);}
 .st.ae{background:rgba(176,24,24,.15);color:#e06060;}
 .stdiv{width:1.5px;background:var(--border);flex-shrink:0;}
-.pc{background:linear-gradient(160deg,#1c1613 0%,#0a0806 100%);border:1.5px solid var(--gold);border-radius:8px;padding:11px;box-shadow:0 5px 20px rgba(0,0,0,.7),inset 0 1px 0 rgba(201,162,39,.1);position:relative;animation:su .28s ease both;}
-.pc::before{content:'';position:absolute;inset:4px;border:1px solid rgba(201,162,39,.2);border-radius:5px;pointer-events:none;}
+.pc{background:rgba(28,22,19,0.72);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);border:1.5px solid var(--gold);border-radius:8px;padding:11px;box-shadow:0 8px 32px rgba(0,0,0,.5);position:relative;animation:su .28s ease both;transition:transform .2s ease, border-color .2s ease;}
+.pc:hover{transform:translateY(-2px);border-color:var(--gold2);}
+.pc::before{content:'';position:absolute;inset:4px;border:1px solid rgba(201,162,39,.15);border-radius:5px;pointer-events:none;}
 .pc.dead{opacity:.42;filter:grayscale(.55);}
-.pc.active-turn{box-shadow:0 0 16px var(--gold);border-color:var(--gold2);z-index:2;}
-.ecard{background:linear-gradient(160deg,#200a0a 0%,#160606 55%,#100404 100%);border:1.5px solid rgba(176,24,24,.55);border-radius:8px;padding:11px;box-shadow:0 5px 20px rgba(0,0,0,.8);position:relative;animation:su .28s ease both;}
-.ecard::before{content:'';position:absolute;inset:4px;border:1px solid rgba(176,24,24,.15);border-radius:5px;pointer-events:none;}
+.pc.active-turn{box-shadow:0 0 20px var(--gold);border-color:var(--gold2);z-index:2;background:rgba(201,162,39,0.08);}
+.ecard{background:rgba(32,10,10,0.72);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);border:1.5px solid rgba(176,24,24,.45);border-radius:8px;padding:11px;box-shadow:0 8px 32px rgba(0,0,0,.6);position:relative;animation:su .28s ease both;transition:transform .2s ease;}
+.ecard:hover{transform:translateY(-2px);border-color:var(--blood2);}
+.ecard::before{content:'';position:absolute;inset:4px;border:1px solid rgba(176,24,24,.12);border-radius:5px;pointer-events:none;}
 .ecard.dead{opacity:.38;filter:grayscale(.6);}
 .ecard.active-turn{box-shadow:0 0 16px var(--blood2);border-color:#f08080;z-index:2;}
 /* name row */
@@ -659,6 +668,7 @@ export default function DMCockpit() {
   const [autoSaveOn,    setAutoSaveOn]    = useState(true);
   const [lastAutoSave,  setLastAutoSave]  = useState<string | null>(null);
   const [nextAutoSlot,  setNextAutoSlot]  = useState(3); // Start at Slot 4 (index 3)
+  const [showHints,     setShowHints]     = useState(false); // Beginner Mode
   const [toastMsg,      setToastMsg]      = useState<ToastMessage | null>(null);
   const [slotMeta,      setSlotMeta]      = useState<SlotMeta[]>(Array.from({length:NUM_SLOTS},(_,i)=>({index:i,empty:true})));
   const toastTimer = useRef(null);
@@ -716,6 +726,8 @@ export default function DMCockpit() {
       showToast("⚠ Save error", "#d43020");
     }
   }, [nextAutoSlot, showToast, refreshSlotMeta]);
+
+
 
   /* ── auto-save interval (20m) ── */
   useEffect(() => {
@@ -982,6 +994,24 @@ export default function DMCockpit() {
       showToast("✓ Loaded slot "+(slotIndex+1),"#28a040");
     }catch(err){showToast("⚠ Load failed: "+err.message,"#d43020");}
   };
+
+  /* ── global keyboard shortcuts ── */
+  useEffect(() => {
+    const handleKD = (e: KeyboardEvent) => {
+      if (["INPUT", "TEXTAREA"].includes((document.activeElement as HTMLElement)?.tagName)) return;
+      
+      const key = e.key.toLowerCase();
+      if (key === "n" && combat) { e.preventDefault(); nextTurn ? nextTurn() : null; }
+      if (key === "d") { e.preventDefault(); setTab("dice"); }
+      if (key === "c") { e.preventDefault(); setTab("chronicles"); }
+      if (key === "p") { e.preventDefault(); setTab("party"); }
+      if (key === "s") { e.preventDefault(); setTab("session"); }
+      if (key === "h") { e.preventDefault(); setShowHints(h => !h); }
+    };
+    window.addEventListener("keydown", handleKD);
+    return () => window.removeEventListener("keydown", handleKD);
+  }, [combat, nextTurn]);
+
   const deleteSlot=async(slotIndex)=>{
     await deleteSlotStorage(slotIndex);
     await refreshSlotMeta();
@@ -1082,6 +1112,7 @@ export default function DMCockpit() {
             <button className="max-btn" onClick={()=>setEditMax(p.id)} title="Edit max HP">✎</button>
           )}
         </div>
+        {showHints && <div className="hint-text">Adjust HP: Red for damage, Green for healing. "Full" to restore.</div>}
         <div className="hbtns">
           <button className="hb pd" onClick={()=>updPHp(p.id,-10)}>−10</button>
           <button className="hb pd" onClick={()=>updPHp(p.id,-5)}>−5</button>
@@ -1105,6 +1136,7 @@ export default function DMCockpit() {
                   placeholder={`Lv${lv+1} spell…`}/>
               </div>
             ))}
+            {showHints && <div className="hint-text">Tap the dots to consume spell slots. Enter spell names for your log.</div>}
           </div>
         )}
         {/* Abilities */}
@@ -1211,6 +1243,7 @@ export default function DMCockpit() {
             <button className="max-btn" onClick={()=>setEditMaxE(e.id)}>✎</button>
           )}
         </div>
+        {showHints && <div className="hint-text">Track enemy health. '−10/−5/−1' for damage, 'Full' for recovery.</div>}
         <div className="hbtns">
           <button className="hb ed" onClick={()=>updEHp(e.id,-10)}>−10</button>
           <button className="hb ed" onClick={()=>updEHp(e.id,-5)}>−5</button>
@@ -1311,6 +1344,8 @@ export default function DMCockpit() {
           );
         })}
       </div>
+      {showHints && <div className="hint-text" style={{textAlign:"center", marginTop:8}}>PRO TIP: Hold any die to see its average damage and common uses!</div>}
+
       {tipDie&&(
         <div className="tip-card" style={{borderColor:tipDie.die.color+"44"}}>
           <div className="tip-lv">
@@ -1502,7 +1537,7 @@ export default function DMCockpit() {
   };
 
   const NAV=[
-    {id:"party", ico:"🧙",lbl:"PARTY"},
+    {id:"party", ico:"🧙",lbl:"DASHBOARD"},
     {id:"chronicles", ico:"📜",lbl:"CHRONICLES"},
     {id:"dice",  ico:"🎲",lbl:"DICE"},
     {id:"combat",ico:"⚔️", lbl:"COMBAT"},
@@ -1510,18 +1545,79 @@ export default function DMCockpit() {
     {id:"session",ico:"💾",lbl:"SESSION"},
   ];
 
-  const partyContent=()=>(
-    <>
-      {players.length > 0 && !combat && (
-        <button className="cbtn btn-gld" onClick={rollInit} style={{marginBottom: 8}}>⚔ Roll Initiative</button>
-      )}
-      {combat && (
-        <div style={{display:"flex",gap:8,marginBottom:8}}>
-          <button className="cbtn btn-ol" style={{flex:1.5}} onClick={nextTurn}>▶ Next Turn</button>
-          <button className="cbtn btn-ol" style={{flex:1}} onClick={rollInit}>⚔ Reroll</button>
-          <button className="cbtn btn-bl" style={{flex:1.5}} onClick={endCombat}>✕ End Combat</button>
+  const renderDashboard=()=>(
+    <div style={{display:"flex",flexDirection:"column",gap:10}}>
+      {/* 1. Party Vitality Summary */}
+      <div className="glass" style={{padding:12}}>
+        <div className="sess-hdg" style={{marginBottom:8, display:"flex", justifyContent:"space-between"}}>
+          <span>🧙 PARTY VITALITY</span>
+          <span style={{fontSize:".5rem",opacity:.5}}>DASHBOARD</span>
+        </div>
+        <div style={{display:"flex", flexDirection:"column", gap:8}}>
+          {players.map(p => {
+            const pct = p.hp / p.max;
+            return (
+              <div key={p.id} style={{display:"flex", alignItems:"center", gap:10}}>
+                <div style={{fontSize:".9rem", width:18}}>{p.icon || P_ICONS[p.cls]}</div>
+                <div style={{flex:1}}>
+                  <div style={{display:"flex", justifyContent:"space-between", marginBottom:2}}>
+                    <span style={{fontFamily:"Cinzel", fontSize:".65rem", color:pct<.3?"var(--blood2)":"var(--gold)"}}>{p.name}</span>
+                    <span style={{fontSize:".6rem", opacity:.7}}>{p.hp}/{p.max}</span>
+                  </div>
+                  <div className="htrack" style={{height:4, border:"none", background:"rgba(255,255,255,.05)"}}>
+                    <div className="hfill" style={{width:`${pct*100}%`, background:hpCol(pct)}} />
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+        {showHints && <div className="hint-text">A quick glance at your party's health. Red means danger!</div>}
+      </div>
+
+      {/* 2. Combat Context */}
+      {combat && cur && (
+        <div className="glass" style={{padding:12, borderLeft:"3px solid var(--gold)"}}>
+          <div className="sess-hdg" style={{marginBottom:6}}>⚔️ ACTIVE TURN</div>
+          <div style={{display:"flex", alignItems:"center", gap:12}}>
+            <div className="hud-turn-ico" style={isEnTurn?{background:"var(--blood2)"}:{}}>{cur.icon}</div>
+            <div>
+              <div style={{fontFamily:"Cinzel", fontSize:".85rem", color:isEnTurn?"var(--blood2)":"var(--gold2)"}}>{cur.name}</div>
+              <div style={{fontSize:".6rem", opacity:.5}}>{isEnTurn?"Enemy":"Player"} · Initiative {cur.init}</div>
+            </div>
+            <button className="hud-next" style={{marginLeft:"auto", padding:"6px 12px"}} onClick={nextTurn}>NEXT ▶</button>
+          </div>
+          {showHints && <div className="hint-text">Advance the story! Use the NEXT button to cycle turns.</div>}
         </div>
       )}
+
+      {/* 3. DM Quick Toolbox */}
+      <div className="glass" style={{padding:12}}>
+        <div className="sess-hdg" style={{marginBottom:8}}>⚡ DM TOOLBOX</div>
+        <div style={{display:"grid", gridTemplateColumns:"1fr 1fr", gap:8}}>
+          <button className="btn-sm ol" onClick={shortRest}>🌙 Short Rest</button>
+          <button className="btn-sm ol" onClick={longRest}>⛺ Long Rest</button>
+        </div>
+        {showHints && <div className="hint-text">Recover resources. Short Rest reset abilities; Long Rest resets everything.</div>}
+        
+        <div style={{marginTop:10, display:"flex", gap:8}}>
+          <button className="btn-sm ol" style={{flex:1}} onClick={()=>setTab("dice")}>🎲 Roll Dice</button>
+          <button className="btn-sm ol" style={{flex:1}} onClick={()=>setTab("chronicles")}>📜 Log Event</button>
+        </div>
+      </div>
+
+      <button className="btn-sm ol" style={{marginTop:4, borderStyle:"dashed", opacity:.6}} onClick={()=>setPartySub(prev=>prev==="players"?"enemies":"players")}>
+        {partySub==="players" ? "👉 View Enemy List" : "👈 View Player List"}
+      </button>
+    </div>
+  );
+
+  const partyContent=()=>(
+    <>
+      {tab==="party" && renderDashboard()}
+      
+      <div style={{marginTop:16}} />
+
       <div className="strow">
         <button className={`st ${partySub==="players"?"ap":""}`} onClick={()=>setPartySub("players")}>🧙 PLAYERS</button>
         <div className="stdiv"/>
@@ -1718,18 +1814,25 @@ export default function DMCockpit() {
             <div className="tb-s">{players.length}p · {enemies.length}e · {combat?"⚔ combat":"at rest"}</div>
           </div>
           <div style={{display:"flex",alignItems:"center",gap:10}}>
-            {combat&&cur&&(
-              <div style={{display:"flex",alignItems:"center",gap:8,marginRight:6}}>
-                <div style={{textAlign:"right"}}>
-                  <div className="tb-al">{isEnTurn?"ENEMY":"ACTIVE"}</div>
-                  <div className="tb-an" style={isEnTurn?{color:"#f08080"}:{}}>{cur.icon} {cur.name}</div>
-                </div>
-                <button className="layout-btn" onClick={nextTurn} style={{padding:"6px 9px",marginLeft:4}}>NEXT ▶</button>
-              </div>
-            )}
+            <button className={`layout-btn ${showHints?"on":""}`} 
+              style={showHints?{background:"rgba(201,162,39,.2)", color:"var(--gold2)"}:{}}
+              onClick={()=>setShowHints(v=>!v)} title="Toggle Help Mode">
+              {showHints?"💡 HINTS ON":"💡 HINTS OFF"}
+            </button>
             <button className="layout-btn" onClick={()=>setPc(v=>!v)}>{pc?"📱":"🖥"}</button>
           </div>
         </div>
+
+        {/* PERSISTENT COMBAT HUD */}
+        {combat && cur && (
+          <div className="hud-bar">
+            <div className="hud-turn-ico" style={isEnTurn?{background:"var(--blood2)"}:{}}>{cur.icon}</div>
+            <div className="hud-turn-name">{cur.name}</div>
+            <div style={{fontSize:".55rem", opacity:.5, letterSpacing:".1em"}}>ACTIVE TURN</div>
+            <button className="hud-next" onClick={nextTurn}>NEXT ▶</button>
+          </div>
+        )}
+
 
         {/* INITIATIVE STRIP */}
         <div className="istrip">
