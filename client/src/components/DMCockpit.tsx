@@ -16,10 +16,12 @@ interface Player {
   slots: number[];
   spellNames: string[];
   init: number;
-  roll: number | null;
   rollNote: string;
   abilities: any[];
   notes: string;
+  ac: number;
+  stats: {str:number,dex:number,con:number,int:number,wis:number,cha:number};
+  preparedSpells: string[];
 }
 
 interface Enemy {
@@ -30,6 +32,21 @@ interface Enemy {
   max: number;
   abilities: any[];
   [key: string]: any;
+}
+
+interface Chapter {
+  id: number;
+  name: string;
+  summary: string;
+  timestamp: string;
+}
+
+interface LogEntry {
+  id: number;
+  t: string;
+  msg: string;
+  type: string;
+  chapterId?: number;
 }
 
 interface SlotMeta {
@@ -61,6 +78,7 @@ const DICE = [
   {sides:12, color:"#20a050",dark:"#082010",label:"d12", tip1:"Greataxes, Barbarian HD. Rare but devastating.",tip2:"The rarest die. Only greataxes and Barbarian use it. Averages 6.5.",tip3:"Greataxe (1d12), Barbarian hit die. Highest average of all weapon dice."},
   {sides:20, color:"#c9a227",dark:"#3a2800",label:"d20", tip1:"Attack rolls, ability checks, saving throws.",tip2:"THE die. Natural 20 = crit. Natural 1 = automatic fail.",tip3:"Attack rolls, Ability checks, Saving throws, Death saves (10+ = success), Wild Magic."},
   {sides:100,color:"#888888",dark:"#181818",label:"d100",tip1:"Wild Magic surges, random tables, percentile checks.",tip2:"Roll two d10s — tens + units. Used for surge and encounter tables.",tip3:"Wild Mage surge table, Random Encounter tables, PHB Trinket tables."},
+  {sides:1000,color:"#a36be8",dark:"#2b134d",label:"d1000",tip1:"Massive tables, ultra-rare loot.",tip2:"For rolling on the d1000 mutation table or massive treasure hoards.",tip3:"Use it when standard percentile just isn't granular enough."}
 ];
 
 function qColor(v,s){const p=v/s;if(p<=.05)return"#cc1818";if(p<=.25)return"#d43020";if(p<=.45)return"#d07020";if(p<=.60)return"#c9a227";if(p<=.79)return"#70a830";if(p<=.94)return"#28a040";return"#00cc55";}
@@ -70,15 +88,16 @@ function hpCol(p){return p>.6?"#3a9a3a":p>.3?"#c8900a":"#c02020";}
 let _uid=300;const uid=()=>++_uid;
 
 const mkPlayer=(overrides={})=>({
-  id:uid(),name:"Adventurer",cls:"Fighter",hp:30,max:30,
-  slots:[0,0,0],spellNames:["","",""],
+  id:uid(),name:"Adventurer",cls:"Fighter",hp:30,max:30,ac:14,
+  stats:{str:15,dex:14,con:13,int:10,wis:12,cha:8},
+  slots:[0,0,0],spellNames:["","",""],preparedSpells:[],
   init:0,roll:null,rollNote:"",abilities:[],notes:"",...overrides
 });
 
 const INIT_PLAYERS=[
-  mkPlayer({id:1,name:"Aldric",cls:"Fighter",hp:45,max:45}),
-  mkPlayer({id:2,name:"Lyra",  cls:"Wizard", hp:28,max:28,slots:[4,3,2]}),
-  mkPlayer({id:3,name:"Shade", cls:"Rogue",  hp:34,max:34}),
+  mkPlayer({id:1,name:"Kaelen the Bold",cls:"Paladin",hp:84,max:92,ac:20,stats:{str:18,dex:10,con:14,int:10,wis:12,cha:16},preparedSpells:["Divine Smite","Cure Wounds","Shield of Faith","Bless"]}),
+  mkPlayer({id:2,name:"Thalric Ironfoot",cls:"Fighter",hp:35,max:35,ac:19,stats:{str:16,dex:12,con:16,int:8,wis:10,cha:12}}),
+  mkPlayer({id:3,name:"Elara Windrunner",cls:"Ranger", hp:28,max:28,ac:16,stats:{str:10,dex:18,con:14,int:10,wis:14,cha:12},slots:[4,3,2],preparedSpells:["Hunter's Mark"]}),
 ];
 
 /* ══════════════════════════════════════════════
@@ -90,7 +109,7 @@ const INIT_PLAYERS=[
 ══════════════════════════════════════════════ */
 const SAVE_PREFIX  = "dm_grimoire_slot_";
 const NUM_SLOTS    = 5;
-const SAVE_VERSION = 6; // Version mise à jour pour démonstration
+const SAVE_VERSION = 7; // Increment for Chapter support
 
 /* Simple polynomial checksum */
 function checksum(str) {
@@ -106,7 +125,9 @@ function buildSave(state) {
     savedAt:  new Date().toISOString(),
     players:  state.players,
     enemies:  state.enemies,
-    log:      state.log.slice(-60),
+    log:      state.log.slice(-100), // Increased slightly for longevity
+    chapters: state.chapters,
+    activeChapterId: state.activeChapterId,
     diceHist: state.diceHist.slice(0, 12),
     combat:   state.combat,
     order:    state.order,
@@ -193,7 +214,9 @@ function DieShape({sides,color,size=54}){
   if(sides===10) return <svg viewBox={V} style={S}><polygon points="50,5 88,28 88,72 50,95 12,72 12,28" {...sw}/><polygon points="50,26 72,38 72,62 50,74 28,62 28,38" stroke={color} strokeWidth="1" fill="none" opacity=".25"/></svg>;
   if(sides===12) return <svg viewBox={V} style={S}><polygon points="50,4 92,32 78,88 22,88 8,32" {...sw}/><polygon points="50,22 76,42 66,76 34,76 24,42" stroke={color} strokeWidth="1" fill="none" opacity=".25"/></svg>;
   if(sides===20) return <svg viewBox={V} style={S}><polygon points="50,3 96,27 96,73 50,97 4,73 4,27" {...sw}/><line x1="4" y1="27" x2="96" y2="73" stroke={color} strokeWidth="1.2" opacity=".28"/><line x1="96" y1="27" x2="4" y2="73" stroke={color} strokeWidth="1.2" opacity=".28"/></svg>;
-  return <svg viewBox={V} style={S}><circle cx="50" cy="50" r="44" {...sw}/><circle cx="50" cy="50" r="30" stroke={color} strokeWidth="1" fill="none" opacity=".25"/><text x="50" y="56" textAnchor="middle" fill={color} fontSize="18" fontFamily="serif" opacity=".55">%</text></svg>;
+  if(sides===100) return <svg viewBox={V} style={S}><circle cx="50" cy="50" r="44" {...sw}/><circle cx="50" cy="50" r="30" stroke={color} strokeWidth="1" fill="none" opacity=".25"/><text x="50" y="56" textAnchor="middle" fill={color} fontSize="18" fontFamily="serif" opacity=".55">%</text></svg>;
+  if(sides===1000) return <svg viewBox={V} style={S}><circle cx="50" cy="50" r="44" {...sw}/><polygon points="50,15 85,50 50,85 15,50" stroke={color} strokeWidth="1" fill="none" opacity=".25"/><text x="50" y="56" textAnchor="middle" fill={color} fontSize="16" fontFamily="serif" opacity=".7">1K</text></svg>;
+  return <svg viewBox={V} style={S}><circle cx="50" cy="50" r="44" {...sw}/><circle cx="50" cy="50" r="30" stroke={color} strokeWidth="1" fill="none" opacity=".25"/><text x="50" y="56" textAnchor="middle" fill={color} fontSize="18" fontFamily="serif" opacity=".55">?</text></svg>;
 }
 
 /* ── Collapsible section — CSS max-height, never unmounts ── */
@@ -263,8 +286,8 @@ html,body{height:100%;background:var(--bg);}
 .dsk-content{flex:1;overflow-y:auto;padding:14px 16px;display:flex;flex-direction:column;gap:10px;scrollbar-width:thin;scrollbar-color:rgba(201,162,39,.15) transparent;}
 .dsk-content::-webkit-scrollbar{width:4px;}
 .dsk-content::-webkit-scrollbar-thumb{background:rgba(201,162,39,.2);border-radius:2px;}
-.g2{display:grid;grid-template-columns:1fr 1fr;gap:12px;}
-.g2 .addbtn{grid-column:1/-1;}
+.card-grid{display:grid;grid-template-columns:repeat(auto-fill, minmax(320px, 1fr));gap:12px;width:100%;}
+.card-grid .addbtn{grid-column:1/-1;}
 /* shared cards */
 @keyframes su{from{opacity:0;transform:translateY(10px);}to{opacity:1;transform:none;}}
 .strow{display:flex;border:1.5px solid var(--border);border-radius:6px;overflow:hidden;flex-shrink:0;}
@@ -272,32 +295,34 @@ html,body{height:100%;background:var(--bg);}
 .st.ap{background:rgba(201,162,39,.15);color:var(--gold);}
 .st.ae{background:rgba(176,24,24,.15);color:#e06060;}
 .stdiv{width:1.5px;background:var(--border);flex-shrink:0;}
-.pc{background:linear-gradient(160deg,#f5e6c4 0%,#ecd9a5 55%,#dfc98a 100%);border:2px solid #9a7820;border-radius:8px;padding:11px;box-shadow:0 5px 20px rgba(0,0,0,.7),inset 0 1px 0 rgba(255,255,255,.22);position:relative;animation:su .28s ease both;}
-.pc::before{content:'';position:absolute;inset:4px;border:1px solid rgba(139,105,20,.22);border-radius:5px;pointer-events:none;}
+.pc{background:linear-gradient(160deg,#1c1613 0%,#0a0806 100%);border:1.5px solid var(--gold);border-radius:8px;padding:11px;box-shadow:0 5px 20px rgba(0,0,0,.7),inset 0 1px 0 rgba(201,162,39,.1);position:relative;animation:su .28s ease both;}
+.pc::before{content:'';position:absolute;inset:4px;border:1px solid rgba(201,162,39,.2);border-radius:5px;pointer-events:none;}
 .pc.dead{opacity:.42;filter:grayscale(.55);}
-.ecard{background:linear-gradient(160deg,#200a0a 0%,#160606 55%,#100404 100%);border:2px solid rgba(176,24,24,.55);border-radius:8px;padding:11px;box-shadow:0 5px 20px rgba(0,0,0,.8);position:relative;animation:su .28s ease both;}
+.pc.active-turn{box-shadow:0 0 16px var(--gold);border-color:var(--gold2);z-index:2;}
+.ecard{background:linear-gradient(160deg,#200a0a 0%,#160606 55%,#100404 100%);border:1.5px solid rgba(176,24,24,.55);border-radius:8px;padding:11px;box-shadow:0 5px 20px rgba(0,0,0,.8);position:relative;animation:su .28s ease both;}
 .ecard::before{content:'';position:absolute;inset:4px;border:1px solid rgba(176,24,24,.15);border-radius:5px;pointer-events:none;}
 .ecard.dead{opacity:.38;filter:grayscale(.6);}
+.ecard.active-turn{box-shadow:0 0 16px var(--blood2);border-color:#f08080;z-index:2;}
 /* name row */
 .nrow{display:flex;align-items:center;gap:8px;margin-bottom:8px;}
 .nicon{font-size:1.85rem;line-height:1;}
 .nfields{flex:1;min-width:0;}
-.ndisp{display:flex;align-items:center;gap:6px;cursor:pointer;background:rgba(255,255,255,.18);border:1.5px solid rgba(139,105,20,.3);border-radius:5px;padding:5px 8px;margin-bottom:4px;}
-.ndisp:active{border-color:rgba(139,105,20,.6);}
-.ntxt{font-family:'Cinzel',serif;font-size:.95rem;font-weight:700;color:var(--ink);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
-.npen{font-size:.65rem;opacity:.35;flex-shrink:0;}
-.ninput{font-family:'Cinzel',serif;font-size:.95rem;font-weight:700;background:rgba(255,255,255,.55);border:2px solid var(--gold);color:var(--ink);width:100%;border-radius:5px;padding:5px 8px;outline:none;margin-bottom:4px;}
-.en-nd{background:rgba(176,24,24,.1);border-color:rgba(176,24,24,.3);}
-.en-nt{color:var(--parch);}
-.en-ni{background:rgba(50,10,10,.7);border-color:var(--blood2);color:var(--parch);}
-.clsrow{display:flex;align-items:center;gap:5px;}
-.clsd{font-family:'Crimson Text',serif;font-size:.78rem;font-style:italic;color:var(--ink2);cursor:pointer;padding:2px 5px;border-radius:3px;border:1px solid transparent;}
-.clss{font-family:'Crimson Text',serif;font-size:.78rem;background:rgba(255,255,255,.55);border:1px solid var(--gold);color:var(--ink);border-radius:3px;padding:2px 4px;flex:1;}
+.ndisp{display:flex;align-items:center;gap:6px;cursor:pointer;background:transparent;border-bottom:1px solid rgba(201,162,39,.2);padding:2px 4px;margin-bottom:4px;}
+.ndisp:active{border-color:rgba(201,162,39,.5);}
+.ntxt{font-family:'Cinzel',serif;font-size:.95rem;font-weight:700;color:var(--gold);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;letter-spacing:.05em;}
+.npen{font-size:.65rem;opacity:.35;flex-shrink:0;color:var(--gold);}
+.ninput{font-family:'Cinzel',serif;font-size:.95rem;font-weight:700;background:rgba(0,0,0,.5);border:1px solid var(--gold);color:var(--gold);width:100%;border-radius:5px;padding:3px 6px;outline:none;margin-bottom:4px;letter-spacing:.05em;}
+.en-nd{border-bottom:1px solid rgba(176,24,24,.3);}
+.en-nt{color:#e06060;}
+.en-ni{background:rgba(50,10,10,.7);border-color:var(--blood2);color:#e06060;}
+.clsrow{display:flex;align-items:center;gap:5px;justify-content:space-between;}
+.clsd{font-family:'Crimson Text',serif;font-size:.78rem;font-style:italic;color:rgba(244,228,193,.45);cursor:pointer;padding:2px 5px;border-radius:3px;border:1px solid transparent;}
+.clss{font-family:'Crimson Text',serif;font-size:.78rem;background:#111;border:1px solid var(--gold);color:var(--gold);border-radius:3px;padding:2px 4px;}
 .en-cd{color:rgba(244,228,193,.42);}
 .en-cs{background:rgba(50,10,10,.7);border-color:var(--blood);color:var(--parch);}
 .ibadge{text-align:center;flex-shrink:0;}
-.ibadge strong{display:block;font-family:'Cinzel',serif;font-size:.95rem;color:var(--ink);}
-.ibadge span{font-family:'Cinzel',serif;font-size:.5rem;color:var(--ink2);letter-spacing:.1em;}
+.ibadge strong{display:block;font-family:'Cinzel',serif;font-size:.95rem;color:var(--gold);}
+.ibadge span{font-family:'Cinzel',serif;font-size:.5rem;color:rgba(201,162,39,.6);letter-spacing:.1em;}
 .en-ib strong{color:var(--parch);}
 .en-ib span{color:rgba(244,228,193,.38);}
 .rmbtn{background:none;border:none;color:var(--blood);font-size:.9rem;cursor:pointer;opacity:.38;min-width:32px;min-height:32px;display:flex;align-items:center;justify-content:center;flex-shrink:0;}
@@ -305,41 +330,41 @@ html,body{height:100%;background:var(--bg);}
 /* HP */
 .hrow{display:flex;align-items:center;gap:7px;margin-bottom:5px;}
 .hlbl{font-family:'Cinzel',serif;font-size:.58rem;letter-spacing:.12em;min-width:18px;}
-.hlbl.p{color:var(--ink2);}
+.hlbl.p{color:rgba(244,228,193,.45);}
 .hlbl.e{color:rgba(244,228,193,.38);}
-.htrack{flex:1;height:9px;background:rgba(0,0,0,.2);border-radius:5px;overflow:hidden;border:1px solid rgba(0,0,0,.15);}
+.htrack{flex:1;height:9px;background:rgba(255,255,255,.05);border-radius:5px;overflow:hidden;border:1px solid rgba(201,162,39,.15);}
 .hfill{height:100%;border-radius:5px;transition:width .32s ease,background .32s ease;}
 .hval{font-family:'Cinzel',serif;font-size:.7rem;min-width:36px;text-align:right;}
-.hval.p{color:var(--ink);}
+.hval.p{color:var(--gold);}
 .hval.e{color:rgba(244,228,193,.8);}
-.max-btn{font-family:'Cinzel',serif;font-size:.58rem;background:rgba(201,162,39,.08);border:1px solid rgba(201,162,39,.25);color:rgba(201,162,39,.7);border-radius:3px;cursor:pointer;padding:2px 6px;flex-shrink:0;}
+.max-btn{font-family:'Cinzel',serif;font-size:.58rem;background:transparent;border:1px solid rgba(201,162,39,.25);color:rgba(201,162,39,.7);border-radius:3px;cursor:pointer;padding:2px 6px;flex-shrink:0;}
 .max-btn:active{background:rgba(201,162,39,.2);}
 .max-input{font-family:'Cinzel',serif;font-size:.75rem;width:52px;background:rgba(255,255,255,.55);border:2px solid var(--gold);color:var(--ink);border-radius:4px;padding:3px 6px;outline:none;text-align:center;}
 .hbtns{display:grid;grid-template-columns:repeat(5,1fr);gap:4px;margin-bottom:7px;}
 .hb{font-family:'Cinzel',serif;font-size:.7rem;padding:8px 3px;border-radius:5px;cursor:pointer;border:1.5px solid;display:flex;align-items:center;justify-content:center;min-height:40px;}
-.hb.pd{background:rgba(176,24,24,.1);border-color:rgba(176,24,24,.35);color:var(--blood);}
+.hb.pd{background:rgba(176,24,24,.1);border-color:rgba(176,24,24,.3);color:#e06060;}
 .hb.pd:active{background:rgba(176,24,24,.25);}
-.hb.ph{background:rgba(30,100,30,.1);border-color:rgba(30,100,30,.35);color:#2a7a2a;}
-.hb.ph:active{background:rgba(30,100,30,.25);}
+.hb.ph{background:rgba(40,160,40,.08);border-color:rgba(40,160,40,.3);color:#5bd65b;}
+.hb.ph:active{background:rgba(40,160,40,.2);}
 .hb.ed{background:rgba(176,24,24,.15);border-color:rgba(176,24,24,.4);color:#f06060;}
 .hb.ed:active{background:rgba(176,24,24,.3);}
 .hb.eh{background:rgba(40,80,40,.2);border-color:rgba(40,120,40,.4);color:#60b060;}
 .hb.eh:active{background:rgba(40,80,40,.35);}
 /* spell slots */
 .sps{margin-bottom:7px;}
-.spt{font-family:'Cinzel',serif;font-size:.56rem;color:var(--ink2);letter-spacing:.15em;margin-bottom:5px;}
+.spt{font-family:'Cinzel',serif;font-size:.56rem;color:rgba(201,162,39,.5);letter-spacing:.15em;margin-bottom:5px;}
 .spr{display:flex;align-items:center;gap:5px;margin-bottom:4px;}
-.splv{font-family:'Cinzel',serif;font-size:.56rem;color:var(--arcane);min-width:14px;text-align:right;flex-shrink:0;}
-.dot{width:19px;height:19px;border-radius:50%;border:1.5px solid rgba(90,45,150,.45);background:rgba(90,45,150,.1);cursor:pointer;flex-shrink:0;}
-.dot.used{background:var(--arcane);border-color:var(--arcane);box-shadow:0 0 5px rgba(90,45,150,.5);}
-.dot:active{transform:scale(.82);}
-.spell-name-input{font-family:'Crimson Text',serif;font-size:.75rem;background:rgba(255,255,255,.2);border:none;border-bottom:1px dashed rgba(90,45,150,.35);color:var(--ink);outline:none;padding:1px 4px;min-width:0;flex:1;}
-.spell-name-input::placeholder{color:rgba(44,24,16,.3);font-style:italic;}
+.splv{font-family:'Cinzel',serif;font-size:.56rem;color:var(--gold);min-width:14px;text-align:right;flex-shrink:0;}
+.dot{width:16px;height:16px;transform:rotate(45deg);border:1.5px solid rgba(201,162,39,.45);background:transparent;cursor:pointer;flex-shrink:0;}
+.dot.used{background:var(--gold);border-color:var(--gold);box-shadow:0 0 5px rgba(201,162,39,.5);}
+.dot:active{transform:rotate(45deg) scale(.82);}
+.spell-name-input{font-family:'Crimson Text',serif;font-size:.75rem;background:transparent;border:none;border-bottom:1px dashed rgba(201,162,39,.35);color:var(--parch);outline:none;padding:1px 4px;min-width:0;flex:1;}
+.spell-name-input::placeholder{color:rgba(244,228,193,.3);font-style:italic;}
 /* abilities */
-.abs{margin-top:6px;border-top:1px solid rgba(44,24,16,.15);padding-top:7px;}
+.abs{margin-top:6px;border-top:1px solid rgba(201,162,39,.15);padding-top:7px;}
 .abs.enemy{border-color:rgba(176,24,24,.15);}
 .abt{display:flex;align-items:center;justify-content:space-between;margin-bottom:5px;}
-.abt-lbl{font-family:'Cinzel',serif;font-size:.56rem;color:var(--ink2);letter-spacing:.15em;}
+.abt-lbl{font-family:'Cinzel',serif;font-size:.56rem;color:rgba(201,162,39,.5);letter-spacing:.15em;}
 .abt-lbl.e{color:rgba(244,228,193,.4);}
 .ab-add{font-family:'Cinzel',serif;font-size:.58rem;background:rgba(201,162,39,.1);border:1px solid rgba(201,162,39,.3);color:var(--gold);padding:4px 10px;border-radius:3px;cursor:pointer;min-height:28px;}
 .ab-add:active{background:rgba(201,162,39,.25);}
@@ -347,27 +372,27 @@ html,body{height:100%;background:var(--bg);}
 .ab-add.enemy:active{background:rgba(176,24,24,.2);}
 .ablist{display:flex;flex-direction:column;gap:4px;}
 .abrow{display:flex;align-items:center;gap:6px;}
-.abname{font-family:'Crimson Text',serif;font-size:.82rem;flex:1;background:transparent;border:none;border-bottom:1px dashed rgba(44,24,16,.25);outline:none;padding:2px 3px;color:var(--ink);}
+.abname{font-family:'Crimson Text',serif;font-size:.82rem;flex:1;background:transparent;border:none;border-bottom:1px dashed rgba(201,162,39,.25);outline:none;padding:2px 3px;color:var(--parch);}
 .abname.e{color:rgba(244,228,193,.75);border-color:rgba(176,24,24,.2);}
-.abname::placeholder{color:rgba(44,24,16,.35);}
+.abname::placeholder{color:rgba(244,228,193,.3);}
 .abname.e::placeholder{color:rgba(244,228,193,.25);}
-.ab-slot{width:20px;height:20px;border-radius:50%;border:1.5px solid rgba(139,105,20,.5);background:rgba(201,162,39,.1);cursor:pointer;flex-shrink:0;}
+.ab-slot{width:16px;height:16px;transform:rotate(45deg);border:1.5px solid rgba(201,162,39,.5);background:transparent;cursor:pointer;flex-shrink:0;}
 .ab-slot.used{background:rgba(176,24,24,.4);border-color:var(--blood);}
 .ab-slot.es{border-color:rgba(176,24,24,.4);background:rgba(176,24,24,.08);}
 .ab-slot.es.used{background:rgba(176,24,24,.55);border-color:var(--blood2);}
 .ab-rm{background:none;border:none;color:var(--blood);cursor:pointer;opacity:.35;font-size:.8rem;min-width:24px;min-height:24px;display:flex;align-items:center;justify-content:center;}
 .ab-rm:active{opacity:1;}
 .ab-empty{font-family:'Crimson Text',serif;font-style:italic;font-size:.72rem;padding-left:2px;}
-.ab-empty.p{color:rgba(44,24,16,.38);}
+.ab-empty.p{color:rgba(244,228,193,.38);}
 .ab-empty.e{color:rgba(244,228,193,.25);}
 /* notes */
-.notes-section{margin-top:6px;border-top:1px solid rgba(44,24,16,.15);padding-top:7px;}
-.notes-lbl{font-family:'Cinzel',serif;font-size:.56rem;color:var(--ink2);letter-spacing:.15em;margin-bottom:4px;}
-.notes-ta{width:100%;background:rgba(255,255,255,.22);border:1px solid rgba(139,105,20,.25);border-radius:4px;color:var(--ink);font-family:'Crimson Text',serif;font-size:.82rem;padding:6px 8px;resize:none;outline:none;line-height:1.42;min-height:52px;}
-.notes-ta::placeholder{color:rgba(44,24,16,.35);font-style:italic;}
-.notes-ta:focus{border-color:rgba(139,105,20,.5);}
+.notes-section{margin-top:6px;border-top:1px solid rgba(201,162,39,.15);padding-top:7px;}
+.notes-lbl{font-family:'Cinzel',serif;font-size:.56rem;color:rgba(201,162,39,.5);letter-spacing:.15em;margin-bottom:4px;}
+.notes-ta{width:100%;background:rgba(0,0,0,.2);border:1px solid rgba(201,162,39,.15);border-radius:4px;color:var(--parch);font-family:'Crimson Text',serif;font-size:.82rem;padding:6px 8px;resize:none;outline:none;line-height:1.42;min-height:52px;}
+.notes-ta::placeholder{color:rgba(244,228,193,.35);font-style:italic;}
+.notes-ta:focus{border-color:rgba(201,162,39,.5);}
 /* roll area */
-.rarea{display:flex;align-items:center;gap:8px;padding-top:6px;border-top:1px solid rgba(44,24,16,.1);margin-top:2px;}
+.rarea{display:flex;align-items:center;gap:8px;padding-top:6px;border-top:1px solid rgba(201,162,39,.15);margin-top:2px;}
 .rarea.ediv{border-color:rgba(176,24,24,.1);}
 .d20b{width:54px;height:54px;flex-shrink:0;clip-path:polygon(50% 0%,100% 38%,82% 100%,18% 100%,0% 38%);display:flex;align-items:center;justify-content:center;font-family:'Cinzel Decorative',serif;font-size:.95rem;font-weight:900;cursor:pointer;user-select:none;}
 .d20b:active{transform:scale(.87) rotate(9deg);}
@@ -380,14 +405,38 @@ html,body{height:100%;background:var(--bg);}
 .d20b.egood{background:linear-gradient(135deg,#6b1e1e,#c04040);color:#ffaaaa;}
 .d20b.ecrit{background:linear-gradient(135deg,#ff0000,#ff6600);color:#fff;box-shadow:0 0 16px rgba(255,80,0,.55);}
 .d20b.efail{background:linear-gradient(135deg,#100808,#1e1010);color:#444;}
-.roll-note-input{font-family:'Crimson Text',serif;font-size:.78rem;flex:1;background:rgba(255,255,255,.2);border:none;border-bottom:1px dashed rgba(44,24,16,.25);color:var(--ink);outline:none;padding:2px 4px;min-width:0;}
-.roll-note-input::placeholder{color:rgba(44,24,16,.32);font-style:italic;}
+.roll-note-input{font-family:'Crimson Text',serif;font-size:.78rem;flex:1;background:transparent;border:none;border-bottom:1px dashed rgba(201,162,39,.3);color:var(--parch);outline:none;padding:2px 4px;min-width:0;}
+.roll-note-input::placeholder{color:rgba(244,228,193,.3);font-style:italic;}
 .rres{font-family:'Cinzel Decorative',serif;font-size:1.25rem;}
-.rres.p{color:var(--ink);}
-.rres.e{color:var(--parch);}
+.rres.p{color:var(--gold);}
+.rres.e{color:var(--gold);}
 .rhint{font-family:'Crimson Text',serif;font-style:italic;font-size:.68rem;}
-.rhint.p{color:var(--ink2);}
+.rhint.p{color:rgba(201,162,39,.6);}
 .rhint.e{color:rgba(244,228,193,.42);}
+/* char sheet */
+.csheet-overlay{position:fixed;inset:0;background:var(--bg);z-index:100;display:flex;flex-direction:column;animation:su .3s ease;}
+.csheet-header{display:flex;align-items:center;justify-content:space-between;padding:12px 16px;border-bottom:1.5px solid var(--gold);background:linear-gradient(180deg,#0a0806,#050403);}
+.csheet-header{display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-bottom:1px solid rgba(201,162,39,.2);background:linear-gradient(180deg,#0a0806,#050403);}
+.csheet-title{font-family:'Cinzel Decorative',serif;font-size:1rem;color:var(--gold);}
+.csheet-close{background:none;border:none;color:var(--gold);font-size:1.2rem;cursor:pointer;}
+.cs-content{flex:1;overflow-y:auto;padding:16px;}
+.cs-hero{display:flex;flex-direction:column;align-items:center;margin-bottom:20px;}
+.cs-name{font-family:'Cinzel Decorative',serif;font-size:1.3rem;color:var(--gold);margin-top:10px;}
+.cs-subtitle{font-family:'Cinzel',serif;font-size:.65rem;color:rgba(244,228,193,.5);letter-spacing:.2em;text-transform:uppercase;}
+.cs-stats-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin:16px 0;}
+.cs-statbox{background:rgba(255,255,255,.03);border:1px solid rgba(201,162,39,.2);border-radius:6px;display:flex;flex-direction:column;align-items:center;padding:8px 4px;}
+.cs-stat-lbl{font-family:'Cinzel',serif;font-size:.5rem;color:rgba(201,162,39,.6);letter-spacing:.15em;}
+.cs-stat-val{font-family:'Cinzel Decorative',serif;font-size:1.1rem;color:var(--gold);margin-top:2px;}
+.cs-stat-input{background:transparent;border:none;border-bottom:1px solid rgba(201,162,39,.3);color:var(--gold);text-align:center;font-family:'Cinzel Decorative',serif;width:100%;outline:none;}
+.cs-stat-input:focus{border-bottom-color:var(--gold);}
+.cs-nav{display:flex;background:#050403;border-top:1px solid var(--gold);}
+.cs-tab{flex:1;padding:12px;text-align:center;font-family:'Cinzel',serif;font-size:.65rem;color:rgba(244,228,193,.4);cursor:pointer;border-bottom:2px solid transparent;}
+.cs-tab.active{color:var(--gold);border-bottom-color:var(--gold);}
+.spellbook-card{background:rgba(25,20,18,.9);border:1.5px solid var(--gold);border-radius:8px;padding:12px;margin-bottom:12px;}
+.spellbook-name{font-family:'Cinzel Decorative',serif;font-size:.9rem;color:var(--gold);}
+.spellbook-desc{font-family:'Crimson Text',serif;font-size:.82rem;color:rgba(244,228,193,.7);margin:6px 0;}
+.spellbook-btn{font-family:'Cinzel',serif;font-size:.65rem;color:#000;background:var(--gold);border:none;padding:8px 12px;border-radius:4px;cursor:pointer;width:100%;margin-top:8px;text-transform:uppercase;font-weight:700;}
+.char-btn{font-family:'Cinzel',serif;font-size:.55rem;color:var(--gold);border:1px solid var(--gold);background:transparent;padding:3px 8px;border-radius:4px;cursor:pointer;margin-left:auto;}
 /* add btns */
 .addbtn{display:flex;align-items:center;justify-content:center;gap:7px;border-radius:7px;padding:13px;font-family:'Cinzel',serif;font-size:.68rem;letter-spacing:.12em;cursor:pointer;width:100%;min-height:48px;}
 .addbtn.pp{background:rgba(201,162,39,.05);border:1.5px dashed rgba(201,162,39,.28);color:rgba(201,162,39,.45);}
@@ -410,7 +459,7 @@ html,body{height:100%;background:var(--bg);}
 .qr-lbl{font-family:'Cinzel',serif;font-size:.6rem;letter-spacing:.16em;}
 .qr-bar{height:5px;border-radius:3px;max-width:150px;transition:width .45s ease,background .3s;}
 .qr-empty{font-family:'Crimson Text',serif;font-style:italic;font-size:.82rem;color:rgba(244,228,193,.28);}
-.note-area{width:100%;background:rgba(6,3,1,.9);border:1px solid rgba(201,162,39,.22);border-radius:5px;color:rgba(244,228,193,.82);font-family:'Crimson Text',serif;font-size:.85rem;padding:8px 10px;resize:none;outline:none;min-height:58px;line-height:1.4;}
+.note-area{width:100%;background:rgba(6,3,1,.9);border:1px solid rgba(201,162,39,.22);border-radius:5px;color:rgba(244,228,193,.82);font-family:'Crimson Text',serif;font-size:.82rem;padding:8px 10px;resize:vertical;outline:none;line-height:1.42;min-height:80px;max-height:220px;}
 .note-area::placeholder{color:rgba(244,228,193,.2);font-style:italic;}
 .note-area:focus{border-color:rgba(201,162,39,.42);}
 .logit-btn{margin-top:6px;width:100%;font-family:'Cinzel',serif;font-size:.65rem;letter-spacing:.1em;padding:11px;border-radius:5px;cursor:pointer;background:rgba(201,162,39,.08);border:1.5px solid rgba(201,162,39,.3);color:var(--gold);min-height:44px;}
@@ -444,7 +493,7 @@ html,body{height:100%;background:var(--bg);}
 .ab-use-btn.av:active{background:rgba(201,162,39,.22);}
 .ab-use-btn.sp{background:rgba(80,40,40,.2);border-color:rgba(80,40,40,.4);color:rgba(244,228,193,.28);cursor:default;}
 /* log */
-.loglist{display:flex;flex-direction:column;gap:4px;}
+.loglist{display:flex;flex-direction:column;gap:4px;max-height:340px;overflow-y:auto;padding-right:2px;}
 .le{padding:6px 9px;border-left:2.5px solid;border-radius:3px;font-size:.76rem;line-height:1.32;}
 .le.crit{border-color:#ff3333;color:#ff8888;background:rgba(255,51,51,.05);}
 .le.fail{border-color:#3a3a3a;color:#666;}
@@ -546,6 +595,29 @@ html,body{height:100%;background:var(--bg);}
 .autosave-toggle{font-family:'Cinzel',serif;font-size:.52rem;padding:3px 8px;border-radius:3px;cursor:pointer;border:1px solid;min-height:24px;}
 .autosave-toggle.on{background:rgba(201,162,39,.1);border-color:rgba(201,162,39,.3);color:var(--gold);}
 .autosave-toggle.off{background:rgba(80,40,40,.15);border-color:rgba(176,24,24,.3);color:#e06060;}
+/* chronicles */
+.chron-grid{display:grid;grid-template-columns:160px 1fr;gap:12px;height:100%;}
+.chron-side{border-right:1px solid var(--border);padding-right:12px;display:flex;flex-direction:column;gap:6px;overflow-y:auto;}
+.ch-item{width:100%;text-align:left;background:rgba(255,255,255,.03);border:1px solid rgba(201,162,39,.1);border-radius:4px;padding:8px 10px;cursor:pointer;transition:all .2s;}
+.ch-item.on{background:rgba(201,162,39,.12);border-color:var(--gold);box-shadow:inset 0 0 8px rgba(201,162,39,0.1);}
+.ch-item-name{font-family:'Cinzel',serif;font-size:0.62rem;color:rgba(244,228,193,0.4);letter-spacing:0.05em;}
+.ch-item.on .ch-item-name{color:var(--gold2);}
+.ch-item-date{font-size:0.55rem;color:rgba(244,228,193,0.2);margin-top:2px;font-style:italic;}
+.ch-add{width:100%;padding:8px;font-family:'Cinzel',serif;font-size:0.58rem;background:transparent;border:1px dashed var(--border);color:rgba(201,162,39,0.5);cursor:pointer;border-radius:4px;margin-bottom:8px;}
+.ch-add:hover{background:rgba(201,162,39,0.05);color:var(--gold);}
+.ch-main{display:flex;flex-direction:column;gap:12px;overflow-y:auto;padding-right:4px;}
+.ch-title-input{background:transparent;border:none;border-bottom:1.5px solid var(--border);font-family:'Cinzel Decorative',serif;font-size:1.1rem;color:var(--gold);width:100%;padding:4px 0;outline:none;}
+.ch-title-input:focus{border-bottom-color:var(--gold);}
+.ch-summary-ta{width:100%;background:rgba(201,162,39,0.03);border:1px solid rgba(201,162,39,0.15);border-radius:6px;color:rgba(244,228,193,0.8);font-family:'Crimson Text',serif;font-size:0.9rem;padding:10px 12px;resize:none;outline:none;line-height:1.5;min-height:100px;}
+.ch-summary-ta::placeholder{color:rgba(244,228,193,0.2);font-style:italic;}
+.ch-summary-ta:focus{border-color:var(--gold);background:rgba(201,162,39,0.06);}
+.ch-log-hdr{font-family:'Cinzel',serif;font-size:0.55rem;color:rgba(201,162,39,0.5);letter-spacing:0.2em;border-bottom:1px solid rgba(201,162,39,0.1);padding-bottom:4px;margin-top:8px;}
+@media (max-width: 768px) {
+  .chron-grid{grid-template-columns: 1fr;}
+  .chron-side{border-right:none;border-bottom:1px solid var(--border);padding-right:0;padding-bottom:12px;max-height:120px;flex-direction:row;overflow-x:auto;overflow-y:hidden;}
+  .ch-item{min-width:130px;height:fit-content;}
+}
+
 `;
 
 // @ts-ignore - Legacy component with custom APIs
@@ -553,7 +625,9 @@ export default function DMCockpit() {
   const [pc,       setPc]       = useState(false); // mobile by default
   const [players,  setPlayers]  = useState<Player[]>(INIT_PLAYERS);
   const [enemies,  setEnemies]  = useState<Enemy[]>([]);
-  const [log,      setLog]      = useState<any[]>([]);
+  const [chapters, setChapters] = useState<Chapter[]>([]);
+  const [activeChapterId, setActiveChapterId] = useState<number | null>(null);
+  const [log,      setLog]      = useState<LogEntry[]>([]);
   const [order,    setOrder]    = useState<any[]>([]);
   const [turn,     setTurn]     = useState(0);
   const [combat,   setCombat]   = useState(false);
@@ -561,8 +635,10 @@ export default function DMCockpit() {
   const [partySub, setPartySub] = useState("players");
   const [editName, setEditName] = useState<number | null>(null);
   const [editCls,  setEditCls]  = useState<number | null>(null);
-  const [editMax,  setEditMax]  = useState<number | null>(null); // id of player editing max HP
-  const [editMaxE, setEditMaxE] = useState<number | null>(null); // id of enemy editing max HP
+  const [editMax,  setEditMax]  = useState<number | null>(null);
+  const [editMaxE, setEditMaxE] = useState<number | null>(null);
+  const [editIcon, setEditIcon] = useState<number | null>(null);
+  const [editIconE,setEditIconE]= useState<number | null>(null);
 
   const [quickRoll, setQuickRoll] = useState<any>(null);
   const [quickSpin, setQuickSpin] = useState(false);
@@ -577,6 +653,8 @@ export default function DMCockpit() {
   const [sessMsg,    setSessMsg]    = useState("");
   const [saveModal,  setSaveModal]  = useState<string | null>(null);
   const [loadText,   setLoadText]   = useState("");
+  const [activeSheet,setActiveSheet]= useState<number | null>(null); // For Character Sheet Overlay
+  const [sheetTab,   setSheetTab]   = useState("stats"); // 'stats' or 'spellbook'
 
   // Auto-save system
   const [autoSaveOn,    setAutoSaveOn]    = useState(true);
@@ -602,7 +680,7 @@ export default function DMCockpit() {
   /* ── performSave: async, uses stateRef so it's never stale ── */
   const stateRef = useRef({});
   useEffect(() => {
-    stateRef.current = { players, enemies, log, diceHist: diceHist || [], combat, order, turn };
+    stateRef.current = { players, enemies, log, chapters, activeChapterId, diceHist: diceHist || [], combat, order, turn };
   });
 
   const refreshSlotMeta = useCallback(async () => {
@@ -656,6 +734,17 @@ export default function DMCockpit() {
         })));
         if (p.enemies) setEnemies(p.enemies.map(e => ({ ...e, abilities: e.abilities||[] })));
         if (p.log)     setLog(p.log);
+        if (p.chapters && p.chapters.length > 0) {
+          setChapters(p.chapters);
+          setActiveChapterId(p.activeChapterId ?? p.chapters[0].id);
+        } else {
+          // Migration/Initialization: Create Prologue chapter
+          const prologue = { id: uid(), name: "Prologue", summary: "The story begins...", timestamp: new Date().toISOString() };
+          setChapters([prologue]);
+          setActiveChapterId(prologue.id);
+          // If there were logs, they now belong to the prologue
+          if (p.log) setLog(p.log.map(le => ({ ...le, chapterId: le.chapterId ?? prologue.id })));
+        }
         if (p.order && p.order.length > 0) {
           setOrder(p.order);
           setTurn(p.turn ?? 0);
@@ -670,19 +759,22 @@ export default function DMCockpit() {
           }
         }
         setLastAutoSave(p.savedAt);
-        showToast("✓ Session restored from " + new Date(p.savedAt).toLocaleTimeString(), "#28a040");
+        showToast("✓ Session restored", "#28a040");
       } catch {}
     })();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const ts=()=>new Date().toLocaleTimeString("en-US",{hour:"2-digit",minute:"2-digit"});
-  const addLog=(msg,type="normal")=>setLog(p=>[...p.slice(-60),{msg,type,t:ts(),id:Date.now()+Math.random()}]);
+  const addLog=(msg,type="normal")=>{
+    const t=new Date().toLocaleTimeString("en-US",{hour12:false,hour:"2-digit",minute:"2-digit"});
+    setLog(prev=>[...prev,{id:uid(),t,msg,type,chapterId:activeChapterId}]);
+  };
 
   const rt=(n,e=false)=>{
     if(!n)return"empty";
     if(e)return n===20?"ecrit":n===1?"efail":n>=15?"egood":"enorm";
     return n===20?"crit":n===1?"fail":n>=15?"good":"norm";
+
   };
 
   /* ── players ── */
@@ -701,6 +793,11 @@ export default function DMCockpit() {
 
   const updPHp=(id,d)=>setP(id,p=>{
     const hp=Math.max(0,Math.min(p.max,p.hp+d));
+    const actual=hp-p.hp;
+    if(actual!==0){
+      const arrow=actual>0?"❤️ healed":"💔 took damage";
+      addLog(`${p.name} ${arrow}: ${actual>0?"+":""}${actual} HP (${hp}/${p.max})`,actual>0?"good":"fail");
+    }
     if(hp===0&&p.hp>0)addLog(`${p.name} has fallen! ☠️`,"fail");
     return{hp};
   });
@@ -719,7 +816,12 @@ export default function DMCockpit() {
 
   const toggleSlot=(id,lv,si)=>setP(id,p=>{
     const slots=[...p.slots];slots[lv]=si<slots[lv]?si:si+1;
-    addLog(`${p.name} used a level ${lv+1} slot`,"spell");
+    const spellName=p.spellNames?.[lv]?.trim();
+    const slotUsed=si>=slots[lv]-1; // true when consuming (not recovering)
+    if(spellName)
+      addLog(`${p.name} cast ${spellName} (Lv${lv+1} slot)`,"spell");
+    else
+      addLog(`${p.name} used a level ${lv+1} slot`,"spell");
     return{slots};
   });
 
@@ -749,7 +851,13 @@ export default function DMCockpit() {
 
   const addPlayer=()=>{
     if(players.length>=6)return;
-    setPlayers(ps=>[...ps,mkPlayer()]);
+    const np=mkPlayer();
+    if(combat){
+      const n=rDie(20);np.init=n;
+      addLog(`${np.name} joins combat! Initiative ${n}`,"init");
+      setOrder(o=>[...o,{id:np.id,name:np.name,init:n,isEnemy:false,icon:P_ICONS[np.cls]||"⚔️"}].sort((a,b)=>b.init-a.init));
+    }
+    setPlayers(ps=>[...ps,np]);
     addLog("A new adventurer joins!","good");
   };
 
@@ -764,12 +872,23 @@ export default function DMCockpit() {
   };
   const updEHp=(id,d)=>setE(id,e=>{
     const hp=Math.max(0,Math.min(e.max,e.hp+d));
+    const actual=hp-e.hp;
+    if(actual!==0){
+      const arrow=actual>0?"was healed":"took damage";
+      addLog(`${e.name} ${arrow}: ${actual>0?"+":""}${actual} HP (${hp}/${e.max})`,actual>0?"good":"fail");
+    }
     if(hp===0&&e.hp>0)addLog(`${e.name} defeated! 💀`,"good");
     return{hp};
   });
   const addEnemy=()=>{
     if(enemies.length>=8)return;
-    setEnemies(es=>[...es,{id:uid(),name:"Goblin",type:"Goblin",hp:14,max:14,init:0,roll:null,abilities:[]}]);
+    const ne={id:uid(),name:"Goblin",type:"Goblin",hp:14,max:14,init:0,roll:null,abilities:[],notes:"",rollNote:""};
+    if(combat){
+      const n=rDie(20);ne.init=n;
+      addLog(`${ne.name} ambushes! Initiative ${n}`,"init");
+      setOrder(o=>[...o,{id:ne.id,name:ne.name,init:n,isEnemy:true,icon:E_ICONS[ne.type]||"❓"}].sort((a,b)=>b.init-a.init));
+    }
+    setEnemies(es=>[...es,ne]);
     addLog("An enemy appears! 👺","fail");
   };
 
@@ -902,11 +1021,21 @@ export default function DMCockpit() {
 
   const renderPlayerCard=(p)=>{
     const pct=p.hp/p.max, isCaster=CASTERS.includes(p.cls);
+    const isActive = combat && cur && cur.id === p.id && !cur.isEnemy;
     return (
-      <div key={p.id} className={`pc ${p.hp===0?"dead":""}`}>
+      <div key={p.id} className={`pc ${p.hp===0?"dead":""} ${isActive?"active-turn":""}`}>
         {/* Name row */}
         <div className="nrow">
-          <div className="nicon">{P_ICONS[p.cls]||"⚔️"}</div>
+          {editIcon===p.id ? (
+            <input className="ninput nicon-input" defaultValue={p.icon||P_ICONS[p.cls]} autoFocus
+              style={{width:40,fontSize:"1.6rem",textAlign:"center"}}
+              onBlur={e=>{setP(p.id,()=>({icon:e.target.value}));setEditIcon(null);}}
+              onKeyDown={e=>{if(e.key==="Enter")(e.target as HTMLElement).blur();}}/>
+          ):(
+            <div className="nicon" onClick={()=>setEditIcon(p.id)} style={{cursor:"pointer"}} title="Edit icon">
+              {p.icon||P_ICONS[p.cls]||"⚔️"}
+            </div>
+          )}
           <div className="nfields">
             {editName===p.id ? (
               <input className="ninput" defaultValue={p.name} autoFocus
@@ -927,8 +1056,10 @@ export default function DMCockpit() {
               ):(
                 <span className="clsd" onClick={()=>setEditCls(p.id)}>{p.cls} ▾</span>
               )}
+              <button className="char-btn" onClick={()=>setActiveSheet(p.id)}>SHEET</button>
             </div>
           </div>
+          {!combat && <div className="ibadge"><strong>{p.ac || 10}</strong><span>AC</span></div>}
           {combat&&<div className="ibadge"><strong>{p.init||"—"}</strong><span>INIT</span></div>}
           <button className="rmbtn" onClick={()=>setPlayers(ps=>ps.filter(x=>x.id!==p.id))}>✕</button>
         </div>
@@ -1022,10 +1153,20 @@ export default function DMCockpit() {
 
   const renderEnemyCard=(e)=>{
     const pct=e.hp/e.max;
+    const isActive = combat && cur && cur.id === e.id && cur.isEnemy;
     return (
-      <div key={e.id} className={`ecard ${e.hp===0?"dead":""}`}>
+      <div key={e.id} className={`ecard ${e.hp===0?"dead":""} ${isActive?"active-turn":""}`}>
         <div className="nrow">
-          <div className="nicon">{E_ICONS[e.type]||"❓"}</div>
+          {editIconE===e.id ? (
+            <input className="ninput nicon-input en-ni" defaultValue={e.icon||E_ICONS[e.type]} autoFocus
+              style={{width:40,fontSize:"1.6rem",textAlign:"center"}}
+              onBlur={ev=>{setE(e.id,()=>({icon:ev.target.value}));setEditIconE(null);}}
+              onKeyDown={ev=>{if(ev.key==="Enter")(ev.target as HTMLElement).blur();}}/>
+          ):(
+            <div className="nicon" onClick={()=>setEditIconE(e.id)} style={{cursor:"pointer"}} title="Edit icon">
+              {e.icon||E_ICONS[e.type]||"❓"}
+            </div>
+          )}
           <div className="nfields">
             {editName===e.id ? (
               <input className="ninput en-ni" defaultValue={e.name} autoFocus
@@ -1090,14 +1231,28 @@ export default function DMCockpit() {
             {e.abilities.length===0&&<div className="ab-empty e">No abilities yet</div>}
           </div>
         </div>
+        <div className="notes-section">
+          <div className="notes-lbl">✦ NOTES</div>
+          <textarea className="notes-ta" rows={2} placeholder="Enemy traits, actions…"
+            style={{background:"rgba(40,10,10,.3)",borderColor:"rgba(176,24,24,.2)"}}
+            value={e.notes||""}
+            onChange={ev=>setE(e.id,()=>({notes:ev.target.value}))}/>
+        </div>
         <div className="rarea ediv">
           <div className={`d20b ${rt(e.roll,true)}`} onClick={()=>rollE20(e.id)}>
             {e.roll??<span style={{fontSize:".65rem"}}>d20</span>}
           </div>
-          <div style={{flex:1}}>
+          <div style={{flex:1,display:"flex",flexDirection:"column",gap:3,minWidth:0}}>
+            <input className="roll-note-input"
+              style={{background:"rgba(176,24,24,.05)",borderColor:"rgba(176,24,24,.15)",color:"#f08080"}}
+              value={e.rollNote||""}
+              onChange={ev=>setE(e.id,()=>({rollNote:ev.target.value}))}
+              placeholder="What to roll for…"/>
             {e.roll?(
-              <><div className="rres e">{e.roll}</div>
-              <div className="rhint e">{e.roll===20?"Deadly! 🔥":e.roll===1?"Fumbled!":"Attack roll"}</div></>
+              <>
+                <div className="rres e">{e.roll}</div>
+                <div className="rhint e">{e.roll===20?"Deadly! 🔥":e.roll===1?"Fumbled!":"Attack roll"}</div>
+              </>
             ):<div className="rhint e">Tap die to roll</div>}
           </div>
         </div>
@@ -1201,21 +1356,13 @@ export default function DMCockpit() {
           </div>
         </Section>
 
-        <Section title="📝 EVENT LOG" defaultOpen={true}>
-          <textarea className="note-area" rows={2}
-            placeholder="Describe what's happening — Enter to log…"
-            value={combatNote}
-            onChange={e=>setCombatNote(e.target.value)}
-            onKeyDown={e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();logNote();}}}/>
-          <button className="logit-btn" onClick={logNote}>⊕ Add to Chronicle</button>
-        </Section>
-
         <Section title="⚔ CONTROLS" defaultOpen={true}>
-          <button className="cbtn btn-gld" onClick={rollInit}>⚔ Roll Initiative ({players.length}p + {enemies.length}e)</button>
-          {combat&&<>
-            <button className="cbtn btn-ol" onClick={nextTurn}>▶ Next — {order[(turn+1)%Math.max(order.length,1)]?.name||"…"}</button>
-            <button className="cbtn btn-bl" onClick={endCombat}>✕ End Combat</button>
-          </>}
+          {!combat && <button className="cbtn btn-gld" onClick={rollInit}>⚔ Roll Initiative ({players.length}p + {enemies.length}e)</button>}
+          {combat&&<div style={{display:"flex",gap:8}}>
+            <button className="cbtn btn-ol" style={{flex:1.5}} onClick={nextTurn}>▶ Next Turn</button>
+            <button className="cbtn btn-ol" style={{flex:1}} onClick={rollInit}>⚔ Reroll</button>
+            <button className="cbtn btn-bl" style={{flex:1.5}} onClick={endCombat}>✕ End Combat</button>
+          </div>}
         </Section>
 
         {/* Current turn character card */}
@@ -1258,16 +1405,6 @@ export default function DMCockpit() {
             </div>
           </Section>
         )}
-
-        <Section title="📜 CHRONICLE" badge={log.length||0} defaultOpen={false}>
-          <button className="log-clr" onClick={()=>setLog([])}>clear all</button>
-          <div className="loglist">
-            {log.length===0&&<div className="lempty">No entries yet…</div>}
-            {[...log].reverse().map(e=>(
-              <div key={e.id} className={`le ${e.type}`}><span className="lt">{e.t}</span>{e.msg}</div>
-            ))}
-          </div>
-        </Section>
       </>
     );
   };
@@ -1356,6 +1493,7 @@ export default function DMCockpit() {
 
   const NAV=[
     {id:"party", ico:"🧙",lbl:"PARTY"},
+    {id:"chronicles", ico:"📜",lbl:"CHRONICLES"},
     {id:"dice",  ico:"🎲",lbl:"DICE"},
     {id:"combat",ico:"⚔️", lbl:"COMBAT"},
     {id:"map",   ico:"🗺️", lbl:"MAP"},
@@ -1364,20 +1502,30 @@ export default function DMCockpit() {
 
   const partyContent=()=>(
     <>
+      {players.length > 0 && !combat && (
+        <button className="cbtn btn-gld" onClick={rollInit} style={{marginBottom: 8}}>⚔ Roll Initiative</button>
+      )}
+      {combat && (
+        <div style={{display:"flex",gap:8,marginBottom:8}}>
+          <button className="cbtn btn-ol" style={{flex:1.5}} onClick={nextTurn}>▶ Next Turn</button>
+          <button className="cbtn btn-ol" style={{flex:1}} onClick={rollInit}>⚔ Reroll</button>
+          <button className="cbtn btn-bl" style={{flex:1.5}} onClick={endCombat}>✕ End Combat</button>
+        </div>
+      )}
       <div className="strow">
         <button className={`st ${partySub==="players"?"ap":""}`} onClick={()=>setPartySub("players")}>🧙 PLAYERS</button>
         <div className="stdiv"/>
         <button className={`st ${partySub==="enemies"?"ae":""}`} onClick={()=>setPartySub("enemies")}>💀 ENEMIES</button>
       </div>
-      {partySub==="players"&&<>
+      {partySub==="players"&&<div className="card-grid">
         {players.map(renderPlayerCard)}
         {players.length<6&&<button className="addbtn pp" onClick={addPlayer}>＋ Add Player</button>}
-      </>}
-      {partySub==="enemies"&&<>
-        {enemies.length===0&&<div style={{textAlign:"center",padding:"28px 0",fontFamily:"Crimson Text",fontStyle:"italic",color:"rgba(244,228,193,.18)",fontSize:".84rem"}}>No enemies lurk yet…<br/>Add foes to track them in combat.</div>}
+      </div>}
+      {partySub==="enemies"&&<div className="card-grid">
+        {enemies.length===0&&<div style={{gridColumn:"1/-1",textAlign:"center",padding:"28px 0",fontFamily:"Crimson Text",fontStyle:"italic",color:"rgba(244,228,193,.18)",fontSize:".84rem"}}>No enemies lurk yet…<br/>Add foes to track them in combat.</div>}
         {enemies.map(renderEnemyCard)}
         {enemies.length<8&&<button className="addbtn ep" onClick={addEnemy}>＋ Add Enemy</button>}
-      </>}
+      </div>}
     </>
   );
 
@@ -1389,6 +1537,161 @@ export default function DMCockpit() {
       <div className="map-badge">COMING SOON</div>
     </div>
   );
+
+  const chroniclesContent = () => {
+    const activeCh = chapters.find(c => c.id === activeChapterId) || (chapters.length > 0 ? chapters[0] : null);
+    if (!activeCh) return <div className="lempty">Gathering the tales...</div>;
+
+    const filteredLogs = log.filter(le => le.chapterId === activeCh.id);
+
+    const addChapter = () => {
+      const id = uid();
+      const chCount = chapters.filter(c => c.name.toLowerCase().includes("chapter")).length;
+      const newCh = {
+        id,
+        name: `Chapter ${chCount + 1}`,
+        summary: "",
+        timestamp: new Date().toISOString()
+      };
+      setChapters(prev => [...prev, newCh]);
+      setActiveChapterId(id);
+    };
+
+    const updateCh = (fields: Partial<Chapter>) => {
+      setChapters(prev => prev.map(c => c.id === activeCh.id ? { ...c, ...fields } : c));
+    };
+
+    const prologs = chapters.filter(c => c.name.toLowerCase() === "prologue");
+    const others  = chapters.filter(c => c.name.toLowerCase() !== "prologue");
+
+    return (
+      <div className="chron-grid">
+        <div className="chron-side">
+          <button className="ch-add" onClick={addChapter}>＋ New Chapter</button>
+          {prologs.map(ch => (
+             <button key={ch.id} className={`ch-item ${ch.id === activeCh.id ? "on" : ""}`} onClick={() => setActiveChapterId(ch.id)}>
+              <div className="ch-item-name">{ch.name}</div>
+              <div className="ch-item-date">{new Date(ch.timestamp).toLocaleDateString()}</div>
+            </button>
+          ))}
+          {prologs.length > 0 && others.length > 0 && <div className="ch-log-hdr" style={{marginBottom: 8}}>CHAPTERS</div>}
+          {others.map(ch => (
+            <button key={ch.id} className={`ch-item ${ch.id === activeCh.id ? "on" : ""}`} onClick={() => setActiveChapterId(ch.id)}>
+              <div className="ch-item-name">{ch.name}</div>
+              <div className="ch-item-date">{new Date(ch.timestamp).toLocaleDateString()}</div>
+            </button>
+          ))}
+        </div>
+        <div className="ch-main">
+          <input className="ch-title-input" value={activeCh.name} onChange={e => updateCh({ name: e.target.value })} placeholder="Chapter Title..." />
+          <div className="tsub">History was written in {new Date(activeCh.timestamp).toLocaleDateString()}</div>
+          
+          <Section title="📜 CHAPTER SUMMARY" defaultOpen={true}>
+            <textarea className="ch-summary-ta" 
+              placeholder="What happened in this chapter? High-level story beats go here..."
+              value={activeCh.summary}
+              onChange={e => updateCh({ summary: e.target.value })} />
+          </Section>
+
+          <Section title={`🎞️ CHRONICLE FEED (${filteredLogs.length})`} defaultOpen={true}>
+             <textarea className="note-area"
+                placeholder="Log a specific event to this chapter..."
+                value={combatNote}
+                onChange={e => setCombatNote(e.target.value)}
+                onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); logNote(); } }} />
+             <div style={{display:"flex", gap:8, marginTop:6}}>
+                <button className="logit-btn" style={{flex:1, marginTop:0}} onClick={logNote}>⊕ Log Event</button>
+                <button className="log-clr" style={{margin:0}} onClick={() => setLog(prev => prev.filter(l => l.chapterId !== activeCh.id))}>clear chapter</button>
+             </div>
+             <div className="loglist" style={{marginTop:12}}>
+                {filteredLogs.length === 0 && <div className="lempty">No event logs for this chapter yet.</div>}
+                {[...filteredLogs].reverse().map(e => (
+                  <div key={e.id} className={`le ${e.type}`}><span className="lt">{e.t}</span>{e.msg}</div>
+                ))}
+             </div>
+          </Section>
+        </div>
+      </div>
+    );
+  };
+
+  /* ─────────────────────────────────────────
+     CHARACTER SHEET OVERLAY
+  ───────────────────────────────────────── */
+  const renderCharacterSheet = (playerId: number) => {
+    const p = players.find(x => x.id === playerId);
+    if (!p) return null;
+
+    return (
+      <div className="csheet-overlay">
+        <div className="csheet-header">
+          <div className="csheet-title">Character Sheet</div>
+          <button className="csheet-close" onClick={() => setActiveSheet(null)}>✕</button>
+        </div>
+        <div className="cs-content">
+          <div className="cs-hero">
+            <div className="nicon" style={{fontSize: "3.5rem"}}>{P_ICONS[p.cls] || "⚔️"}</div>
+            <div className="cs-name">{p.name}</div>
+            <div className="cs-subtitle">{p.cls} · Level 10</div>
+          </div>
+          
+          <div className="cs-nav">
+            <div className={`cs-tab ${sheetTab === "stats" ? "active" : ""}`} onClick={() => setSheetTab("stats")}>STATS</div>
+            <div className={`cs-tab ${sheetTab === "spellbook" ? "active" : ""}`} onClick={() => setSheetTab("spellbook")}>SPELLBOOK</div>
+          </div>
+          
+          {sheetTab === "stats" && (
+            <>
+              <div className="cs-stats-grid">
+                {[
+                  {k:'STR', keyPath:'str', v:p.stats?.str??10}, 
+                  {k:'DEX', keyPath:'dex', v:p.stats?.dex??10}, 
+                  {k:'CON', keyPath:'con', v:p.stats?.con??10},
+                  {k:'INT', keyPath:'int', v:p.stats?.int??10}, 
+                  {k:'WIS', keyPath:'wis', v:p.stats?.wis??10}, 
+                  {k:'CHA', keyPath:'cha', v:p.stats?.cha??10}
+                ].map((s) => (
+                  <div key={s.k} className="cs-statbox">
+                    <div className="cs-stat-lbl">{s.k}</div>
+                    <input className="cs-stat-val cs-stat-input" type="number" value={s.v} 
+                      onChange={e=>setP(p.id,()=>({stats:{...(p.stats||{}),[s.keyPath]:Number(e.target.value)}}))}/>
+                  </div>
+                ))}
+              </div>
+              <div style={{display:"flex",gap:10}}>
+                 <div className="cs-statbox" style={{flex:1}}>
+                   <div className="cs-stat-lbl">HIT POINTS</div>
+                   <div style={{display:"flex", alignItems:"center", justifyContent:"center", gap: 5}}>
+                     <input type="number" className="cs-stat-val cs-stat-input" value={p.hp} style={{width: 50}} onChange={e=>setP(p.id,()=>({hp:Number(e.target.value)}))}/>
+                     <span style={{fontSize:"1.1rem",color:"var(--gold)"}}>/</span>
+                     <input type="number" className="cs-stat-val cs-stat-input" value={p.max} style={{width: 50}} onChange={e=>commitMax(p.id,e.target.value)}/>
+                   </div>
+                 </div>
+                 <div className="cs-statbox" style={{flex:1}}>
+                   <div className="cs-stat-lbl">ARMOR CLASS</div>
+                   <input className="cs-stat-val cs-stat-input" type="number" value={p.ac || 10} onChange={e=>setP(p.id,()=>({ac:Number(e.target.value)}))}/>
+                 </div>
+              </div>
+            </>
+          )}
+
+          {sheetTab === "spellbook" && (
+            <div style={{marginTop: 16}}>
+               <div className="spt" style={{marginBottom:10}}>✦ PREPARED SPELLS ({p.preparedSpells?.length || 0})</div>
+               {p.preparedSpells?.length === 0 && <div className="cs-subtitle" style={{textTransform:"none"}}>No spells prepared.</div>}
+               {p.preparedSpells?.map(s => (
+                 <div key={s} className="spellbook-card">
+                   <div className="spellbook-name">{s}</div>
+                   <div className="spellbook-desc">A powerful incantation channeling raw arcane or divine energy.</div>
+                   <button className="spellbook-btn">Expend Spell Slot</button>
+                 </div>
+               ))}
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  };
 
   /* ─────────────────────────────────────────
      RENDER
@@ -1406,9 +1709,12 @@ export default function DMCockpit() {
           </div>
           <div style={{display:"flex",alignItems:"center",gap:10}}>
             {combat&&cur&&(
-              <div>
-                <div className="tb-al">{isEnTurn?"ENEMY":"ACTIVE"}</div>
-                <div className="tb-an" style={isEnTurn?{color:"#f08080"}:{}}>{cur.icon} {cur.name}</div>
+              <div style={{display:"flex",alignItems:"center",gap:8,marginRight:6}}>
+                <div style={{textAlign:"right"}}>
+                  <div className="tb-al">{isEnTurn?"ENEMY":"ACTIVE"}</div>
+                  <div className="tb-an" style={isEnTurn?{color:"#f08080"}:{}}>{cur.icon} {cur.name}</div>
+                </div>
+                <button className="layout-btn" onClick={nextTurn} style={{padding:"6px 9px",marginLeft:4}}>NEXT ▶</button>
               </div>
             )}
             <button className="layout-btn" onClick={()=>setPc(v=>!v)}>{pc?"📱":"🖥"}</button>
@@ -1422,7 +1728,9 @@ export default function DMCockpit() {
             {order.map((o,i)=>(
               <div key={o.id} className={`ichip ${o.isEnemy?"ec":""} ${i===turn?"on":""}`}>
                 <span className={`inum ${o.isEnemy?"e":""}`}>{o.init}</span>
-                {o.icon} {o.name}{i===turn&&<span> ◀</span>}
+                {o.icon} {o.name}
+                <span style={{fontSize:".55rem",opacity:0.65}}>({o.isEnemy?enemies.find(x=>x.id===o.id)?.hp:players.find(x=>x.id===o.id)?.hp} HP)</span>
+                {i===turn&&<span> ◀</span>}
               </div>
             ))}</>
           ):<div className="iempty">Roll initiative to begin combat…</div>}
@@ -1433,6 +1741,7 @@ export default function DMCockpit() {
           <div className="mob-body">
             <div className="content">
               {tab==="party" && partyContent()}
+              {tab==="chronicles" && chroniclesContent()}
               {tab==="dice"  && renderDiceGrid("dice-grid")}
               {tab==="combat"&&<>
                 {combat&&cur&&<div className={`turn-card ${isEnTurn?"et":"pt"}`}>
@@ -1449,6 +1758,7 @@ export default function DMCockpit() {
               {NAV.map(t=>(
                 <button key={t.id} className={`ntab ${tab===t.id?"on":""}`} onClick={()=>setTab(t.id)}>
                   {t.id==="party"&&enemies.length>0&&tab!=="party"&&<div className="nbadge">{enemies.length}</div>}
+                  {t.id==="chronicles"&&log.length>0&&tab!=="chronicles"&&<div className="nbadge">✦</div>}
                   {t.id==="combat"&&log.length>0&&tab!=="combat"&&<div className="nbadge">{Math.min(log.length,9)}</div>}
                   <div className="nico">{t.ico}</div>
                   <div className="nlbl">{t.lbl}</div>
@@ -1467,6 +1777,7 @@ export default function DMCockpit() {
                 <button key={t.id} className={`dsk-ni ${tab===t.id?"on":""}`} onClick={()=>setTab(t.id)}>
                   <span style={{fontSize:"1.15rem",flexShrink:0}}>{t.ico}</span>{t.lbl}
                   {t.id==="party"&&enemies.length>0&&<span style={{background:"var(--blood)",color:"#fff",fontSize:".44rem",minWidth:16,height:16,borderRadius:8,display:"flex",alignItems:"center",justifyContent:"center",padding:"0 3px",marginLeft:"auto"}}>{enemies.length}</span>}
+                  {t.id==="chronicles"&&log.length>0&&<span style={{background:"var(--gold)",color:"var(--ink)",fontSize:".44rem",minWidth:16,height:16,borderRadius:8,display:"flex",alignItems:"center",justifyContent:"center",padding:"0 3px",marginLeft:"auto"}}>✦</span>}
                   {t.id==="combat"&&log.length>0&&<span style={{background:"var(--blood)",color:"#fff",fontSize:".44rem",minWidth:16,height:16,borderRadius:8,display:"flex",alignItems:"center",justifyContent:"center",padding:"0 3px",marginLeft:"auto"}}>{Math.min(log.length,9)}</span>}
                 </button>
               ))}
@@ -1488,10 +1799,11 @@ export default function DMCockpit() {
                       <div className="stdiv"/>
                       <button className={`st ${partySub==="enemies"?"ae":""}`} onClick={()=>setPartySub("enemies")}>💀 ENEMIES</button>
                     </div>
-                    {partySub==="players"&&<div className="g2">{players.map(renderPlayerCard)}{players.length<6&&<button className="addbtn pp" onClick={addPlayer}>＋ Add Player</button>}</div>}
-                    {partySub==="enemies"&&<div className="g2">{enemies.length===0&&<div style={{gridColumn:"1/-1",textAlign:"center",padding:"28px 0",fontFamily:"Crimson Text",fontStyle:"italic",color:"rgba(244,228,193,.18)",fontSize:".84rem"}}>No enemies lurk yet…</div>}{enemies.map(renderEnemyCard)}{enemies.length<8&&<button className="addbtn ep" onClick={addEnemy}>＋ Add Enemy</button>}</div>}
+                    {partySub==="players"&&<div className="card-grid">{players.map(renderPlayerCard)}{players.length<6&&<button className="addbtn pp" onClick={addPlayer}>＋ Add Player</button>}</div>}
+                    {partySub==="enemies"&&<div className="card-grid">{enemies.length===0&&<div style={{gridColumn:"1/-1",textAlign:"center",padding:"28px 0",fontFamily:"Crimson Text",fontStyle:"italic",color:"rgba(244,228,193,.18)",fontSize:".84rem"}}>No enemies lurk yet…</div>}{enemies.map(renderEnemyCard)}{enemies.length<8&&<button className="addbtn ep" onClick={addEnemy}>＋ Add Enemy</button>}</div>}
                   </>
                 )}
+                {tab==="chronicles" && chroniclesContent()}
                 {tab==="dice"&&(
                   <div style={{display:"flex",gap:14}}>
                     <div style={{flex:1,display:"flex",flexDirection:"column",gap:10}}>{renderDiceGrid("dsk-dice-grid")}</div>
@@ -1517,11 +1829,14 @@ export default function DMCockpit() {
                   </div>
                 )}
                 {tab==="map"&&mapContent()}
-                {tab==="session"&&<div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>{renderSession()}</div>}
+                {tab==="session"&&renderSession()}
               </div>
             </div>
           </div>
         )}
+
+        {/* CHARACTER SHEET OVERLAY */}
+        {activeSheet && renderCharacterSheet(activeSheet)}
 
         {/* TOAST */}
         {toastMsg&&(
