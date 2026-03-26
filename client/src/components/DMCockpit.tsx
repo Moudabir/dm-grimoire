@@ -707,10 +707,10 @@ export default function DMCockpit() {
     }
   }, [currentSlot, showToast, refreshSlotMeta]);
 
-  /* ── auto-save interval (60s) ── */
+  /* ── auto-save interval (20m) ── */
   useEffect(() => {
     if (!autoSaveOn) return;
-    const id = setInterval(() => { performSave(false); }, 60000);
+    const id = setInterval(() => { performSave(false); }, 1200000);
     return () => clearInterval(id);
   }, [autoSaveOn, performSave]);
 
