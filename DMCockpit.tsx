@@ -46,7 +46,7 @@ const INIT_PLAYERS=[
 ══════════════════════════════════════════════ */
 const SAVE_PREFIX  = "dm_grimoire_slot_";
 const NUM_SLOTS    = 5;
-const SAVE_VERSION = 5;
+const SAVE_VERSION = 6; // Version mise à jour pour démonstration
 
 /* Simple polynomial checksum */
 function checksum(str) {
