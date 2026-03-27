@@ -1,22 +1,20 @@
 import { initializeApp } from "firebase/app";
 import { getAuth, GoogleAuthProvider } from "firebase/auth";
 import { getFirestore } from "firebase/firestore";
-import { getAnalytics } from "firebase/analytics";
 
-// Config provided by user for dndgrm project
+// TODO: Replace with your Firebase project configuration
+// You can find this in your Firebase Console -> Project Settings -> General -> Your apps
 const firebaseConfig = {
-  apiKey: "AIzaSyBnwTEuom1mpOOi_ruQag7PQNlMR6nAndk",
-  authDomain: "dndgrm.firebaseapp.com",
-  projectId: "dndgrm",
-  storageBucket: "dndgrm.firebasestorage.app",
-  messagingSenderId: "210545617901",
-  appId: "1:210545617901:web:685a81e0c1822a06e095e4",
-  measurementId: "G-QW65WZTX7Q"
+  apiKey: "YOUR_API_KEY",
+  authDomain: "YOUR_AUTH_DOMAIN",
+  projectId: "YOUR_PROJECT_ID",
+  storageBucket: "YOUR_STORAGE_BUCKET",
+  messagingSenderId: "YOUR_MESSAGING_SENDER_ID",
+  appId: "YOUR_APP_ID"
 };
 
 // Initialize Firebase
 const app = initializeApp(firebaseConfig);
-const analytics = typeof window !== 'undefined' ? getAnalytics(app) : null;
 
 // Initialize Firebase services
 export const auth = getAuth(app);
