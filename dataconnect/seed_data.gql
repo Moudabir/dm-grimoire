@@ -1,0 +1,130 @@
+mutation CreateDemoData @transaction @auth(level: USER, insecureReason: "Seed data mutations should only be callable by authenticated users and are for demonstration purposes only.") {
+  user_insertMany(data: [
+    {
+      id: "550e8400-e29b-41d4-a716-446655440000",
+      displayName: "DM Master",
+      email: "dm.master@example.com",
+      createdAt: "2024-01-01T10:00:00Z"
+    },
+    {
+      id: "550e8400-e29b-41d4-a716-446655440001",
+      displayName: "Player One",
+      email: "player.one@example.com",
+      createdAt: "2024-01-01T10:05:00Z"
+    },
+    {
+      id: "550e8400-e29b-41d4-a716-446655440002",
+      displayName: "Player Two",
+      email: "player.two@example.com",
+      createdAt: "2024-01-01T10:10:00Z"
+    }
+  ])
+  campaign_insertMany(data: [
+    {
+      id: "550e8400-e29b-41d4-a716-446655440010",
+      name: "The Lost Mines of Phandelver",
+      createdAt: "2024-01-02T11:00:00Z",
+      description: "A classic D&D starter adventure.",
+      dmId: "550e8400-e29b-41d4-a716-446655440000"
+    },
+    {
+      id: "550e8400-e29b-41d4-a716-446655440011",
+      name: "Curse of Strahd",
+      createdAt: "2024-01-03T12:00:00Z",
+      description: "A gothic horror campaign set in Barovia.",
+      dmId: "550e8400-e29b-41d4-a716-446655440000"
+    }
+  ])
+  playerCharacter_insertMany(data: [
+    {
+      id: "550e8400-e29b-41d4-a716-446655440020",
+      name: "Gimli",
+      className: "Fighter",
+      race: "Dwarf",
+      hitPoints: 30,
+      armorClass: 18,
+      initiativeModifier: 2,
+      playerDisplayName: "Player One",
+      campaignId: "550e8400-e29b-41d4-a716-446655440010"
+    },
+    {
+      id: "550e8400-e29b-41d4-a716-446655440021",
+      name: "Legolas",
+      className: "Ranger",
+      race: "Elf",
+      hitPoints: 25,
+      armorClass: 16,
+      initiativeModifier: 4,
+      playerDisplayName: "Player Two",
+      campaignId: "550e8400-e29b-41d4-a716-446655440010"
+    }
+  ])
+  encounter_insertMany(data: [
+    {
+      id: "550e8400-e29b-41d4-a716-446655440030",
+      name: "Goblin Ambush",
+      createdAt: "2024-01-02T13:00:00Z",
+      description: "A surprise attack by a band of goblins.",
+      status: "Active",
+      campaignId: "550e8400-e29b-41d4-a716-446655440010"
+    },
+    {
+      id: "550e8400-e29b-41d4-a716-446655440031",
+      name: "Vampire Attack",
+      createdAt: "2024-01-03T14:00:00Z",
+      description: "Strahd's minions attack the party in the woods.",
+      status: "Upcoming",
+      campaignId: "550e8400-e29b-41d4-a716-446655440011"
+    }
+  ])
+  encounterCreature_insertMany(data: [
+    {
+      id: "550e8400-e29b-41d4-a716-446655440040",
+      name: "Goblin 1",
+      creatureType: "Goblin",
+      currentHitPoints: 7,
+      maxHitPoints: 7,
+      armorClass: 15,
+      initiativeModifier: 2,
+      enccounterId: "550e8400-e29b-41d4-a716-446655440030"
+    },
+    {
+      id: "550e8400-e29b-41d4-a716-446655440041",
+      name: "Goblin 2",
+      creatureType: "Goblin",
+      currentHitPoints: 7,
+      maxHitPoints: 7,
+      armorClass: 15,
+      initiativeModifier: 2,
+      enccounterId: "550e8400-e29b-41d4-a716-446655440030"
+    },
+    {
+      id: "550e8400-e29b-41d4-a716-446655440042",
+      name: "Vampire Spawn 1",
+      creatureType: "Vampire Spawn",
+      currentHitPoints: 58,
+      maxHitPoints: 58,
+      armorClass: 15,
+      initiativeModifier: 3,
+      enccounterId: "550e8400-e29b-41d4-a716-446655440031"
+    }
+  ])
+  ruleReference_insertMany(data: [
+    {
+      id: "550e8400-e29b-41d4-a716-446655440050",
+      title: "Advantage and Disadvantage",
+      category: "Combat",
+      content: "When you have advantage, you roll two d20s and use the higher result. When you have disadvantage, you roll two d20s and use the lower result.",
+      tags: ["rule", "combat"],
+      sourceBook: "Player's Handbook"
+    },
+    {
+      id: "550e8400-e29b-41d4-a716-446655440051",
+      title: "Resting",
+      category: "Downtime",
+      content: "Short rests are at least 1 hour long. Long rests are at least 8 hours long.",
+      tags: ["rule", "downtime"],
+      sourceBook: "Player's Handbook"
+    }
+  ])
+}

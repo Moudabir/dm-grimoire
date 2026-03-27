@@ -1,0 +1,56 @@
+type User @table {
+  displayName: String!
+  createdAt: Timestamp!
+  email: String
+  photoUrl: String
+}
+
+type Campaign @table {
+  name: String!
+  createdAt: Timestamp!
+  description: String
+  currentSessionDate: Date
+  dm: User
+}
+
+type PlayerCharacter @table {
+  name: String!
+  className: String!
+  race: String!
+  hitPoints: Int!
+  armorClass: Int!
+  initiativeModifier: Int!
+  playerDisplayName: String
+  notes: String
+  campaign: Campaign
+}
+
+type Encounter @table {
+  name: String!
+  createdAt: Timestamp!
+  description: String
+  status: String
+  campaign: Campaign
+}
+
+type EncounterCreature @table {
+  name: String!
+  creatureType: String!
+  currentHitPoints: Int!
+  maxHitPoints: Int!
+  armorClass: Int!
+  initiativeModifier: Int!
+  monsterStatBlockReference: String
+  notes: String
+  initiativeRoll: Int
+  statusEffects: [String]
+  enccounter: Encounter
+}
+
+type RuleReference @table {
+  title: String!
+  category: String!
+  content: String!
+  tags: [String]
+  sourceBook: String
+}

@@ -1,0 +1,48 @@
+query ListAllCampaigns @auth(level: USER, insecureReason: "Listing campaigns is safe to expose to all logged in users. Individual campaign access is restricted by dmId.") {
+  campaigns {
+    id
+    name
+    description
+    createdAt
+    currentSessionDate
+    dm {
+      id
+      displayName
+    }
+  }
+}
+
+query GetMyPlayerCharacters($campaignId: UUID!) @auth(level: USER) {
+  playerCharacters(where: {campaignId: {eq: $campaignId}, playerDisplayName: {eq_expr: "auth.token.name"}}) {
+    id
+    name
+    className
+    race
+    hitPoints
+    armorClass
+    initiativeModifier
+    playerDisplayName
+    notes
+  }
+}
+
+mutation CreateCampaign($name: String!, $description: String) @auth(level: USER) {
+  campaign_insert(data: {
+    name: $name,
+    description: $description,
+    dmId_expr: "auth.uid",
+    createdAt_expr: "request.time"
+  })
+}
+
+mutation AddEncounterCreatureToEncounter($encounterId: UUID!, $name: String!, $creatureType: String!, $currentHitPoints: Int!, $maxHitPoints: Int!, $armorClass: Int!, $initiativeModifier: Int!) @auth(expr: "auth.uid != null && exists(query.encounter(id: $encounterId).campaign.dmId) && query.encounter(id: $encounterId).campaign.dmId == auth.uid") {
+  encounterCreature_insert(data: {
+    enccounterId: $encounterId,
+    name: $name,
+    creatureType: $creatureType,
+    currentHitPoints: $currentHitPoints,
+    maxHitPoints: $maxHitPoints,
+    armorClass: $armorClass,
+    initiativeModifier: $initiativeModifier
+  })
+}
