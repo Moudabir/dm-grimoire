@@ -127,3 +127,5 @@ If you're a DM who's tired of the friction and just wants a tool that respects y
 **Run your campaign. Tell your story. Let the tools handle the rest.**
 
 Questions? Ideas? Just want to talk about D&D? Hit me up or contribute.
+
+Also i mean none of what's written above, the how to is the most important part, otherwise have fun we can't read anyways.
