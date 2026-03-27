@@ -1,14 +1,5 @@
 // @ts-nocheck
-import {
-  useEffect,
-  useState,
-  useRef,
-  useCallback
-} from "react";
-import { useAuthState } from 'react-firebase-hooks/auth';
-import { doc, getDoc, setDoc, updateDoc, collection, query, getDocs } from 'firebase/firestore';
-import { auth, db } from '../lib/firebase';
-import AuthModal from './AuthModal';
+import { useState, useRef, useCallback, useEffect } from "react";
 
 interface ToastMessage {
   text: string;
@@ -68,7 +59,6 @@ interface SlotMeta {
   enemies?: number;
   log?: number;
   valid?: boolean;
-  isCloud?: boolean; // Added for cloud status
 }
 
 const FONTS = `@import url('https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@700;900&family=Cinzel:wght@400;600;700&family=Crimson+Text:ital,wght@0,400;0,600;1,400&display=swap');`;
@@ -116,10 +106,10 @@ const INIT_PLAYERS=[
    - Checksum-based corruption detection
    - Auto-loads newest valid slot on mount
    - Saves every 60 seconds (non-blocking)
- ══════════════════════════════════════════════ */
+══════════════════════════════════════════════ */
 const SAVE_PREFIX  = "dm_grimoire_slot_";
 const NUM_SLOTS    = 5;
-const SAVE_VERSION = 8; // Increment for Cloud support
+const SAVE_VERSION = 7; // Increment for Chapter support
 
 /* Simple polynomial checksum */
 function checksum(str) {
@@ -129,19 +119,19 @@ function checksum(str) {
 }
 
 /* Build a validated, stamped save object */
-function buildSave(players, enemies, log, chapters, activeChapterId, diceHist, combat, order, turn) {
+function buildSave(state) {
   const payload = {
     version:  SAVE_VERSION,
     savedAt:  new Date().toISOString(),
-    players:  players,
-    enemies:  enemies,
-    log:      log.slice(-100),
-    chapters: chapters,
-    activeChapterId: activeChapterId,
-    diceHist: diceHist.slice(0, 12),
-    combat:   combat,
-    order:    order,
-    turn:     turn,
+    players:  state.players,
+    enemies:  state.enemies,
+    log:      state.log.slice(-100), // Increased slightly for longevity
+    chapters: state.chapters,
+    activeChapterId: state.activeChapterId,
+    diceHist: state.diceHist.slice(0, 12),
+    combat:   state.combat,
+    order:    state.order,
+    turn:     state.turn,
   };
   const json = JSON.stringify(payload);
   return { payload, checksum: checksum(json), size: json.length };
@@ -196,7 +186,7 @@ function findBestSave() {
 }
 
 /* Read all slot summaries for UI */
-async function readAllSlotMeta() {
+function readAllSlotMeta() {
   const results = [];
   for (let i = 0; i < NUM_SLOTS; i++) {
     const raw = readSlot(i);
@@ -681,8 +671,6 @@ export default function DMCockpit() {
   const [showHints,     setShowHints]     = useState(false); // Beginner Mode
   const [toastMsg,      setToastMsg]      = useState<ToastMessage | null>(null);
   const [slotMeta,      setSlotMeta]      = useState<SlotMeta[]>(Array.from({length:NUM_SLOTS},(_,i)=>({index:i,empty:true})));
-  const [user, loadingAuth] = useAuthState(auth);
-  const [showAuth, setShowAuth] = useState(false);
   const toastTimer = useRef(null);
 
   const touchRef=useRef({active:false,die:null,sx:0,sy:0,cancelled:false});
@@ -705,59 +693,19 @@ export default function DMCockpit() {
   });
 
   const refreshSlotMeta = useCallback(async () => {
-    let meta = await readAllSlotMeta();
-
-    // If logged in, overlay cloud status
-    if (user) {
-      try {
-        const q = query(collection(db, `users/${user.uid}/saves`));
-        const snap = await getDocs(q);
-        const cloudSlots: Record<number, any> = {};
-        snap.forEach(doc => { cloudSlots[parseInt(doc.id)] = doc.data(); });
-
-        meta = meta.map(m => {
-          if (cloudSlots[m.index]) {
-            return { ...m,
-              empty: false,
-              valid: true,
-              savedAt: cloudSlots[m.index].savedAt,
-              players: cloudSlots[m.index].players?.length || 0,
-              enemies: cloudSlots[m.index].enemies?.length || 0,
-              log: cloudSlots[m.index].log?.length || 0,
-              isCloud: true
-            };
-          }
-          return m;
-        });
-      } catch (e) { console.error("Cloud meta error", e); }
-    }
+    const meta = await readAllSlotMeta();
     setSlotMeta(meta);
-  }, [user]);
-
-  const syncToCloud = useCallback(async (slotIndex: number, payload: any) => {
-    if (!user) return;
-    try {
-      const docRef = doc(db, `users/${user.uid}/saves`, slotIndex.toString());
-      await setDoc(docRef, {
-        ...payload,
-        syncedAt: new Date().toISOString()
-      });
-    } catch (e) {
-      console.error("Sync error", e);
-      showToast("⚠ Cloud sync failed", "#ff6b6b");
-    }
-  }, [user, showToast]);
+  }, []);
 
   const performSave = useCallback(async (manual: boolean | number = false) => {
-    const s = stateRef.current as any;
-    const save = buildSave(s.players, s.enemies, s.log, s.chapters, s.activeChapterId, s.diceHist, s.combat, s.order, s.turn);
-
     try {
-      let slot: number;
+      const save = buildSave(stateRef.current);
+      let slot = 0;
+      
       if (typeof manual === "number") {
         slot = manual;
       } else if (manual === true) {
-        slot = 0; // default to slot 1 for generic 'save' call
+        slot = 0; // Default manual save to Slot 1
       } else {
         slot = nextAutoSlot;
       }
@@ -768,16 +716,9 @@ export default function DMCockpit() {
           setNextAutoSlot(prev => prev === 3 ? 4 : 3);
         }
         setLastAutoSave(save.payload.savedAt);
-
-        // Cloud Sync
-        if (user) {
-          await syncToCloud(slot, save.payload);
-        }
-
         await refreshSlotMeta();
         const slotLabel = manual === false ? " (Auto)" : " (Manual)";
-        const syncLabel = user ? " + Cloud" : "";
-        showToast(`💾 Saved to slot ${slot + 1}${slotLabel}${syncLabel}`, "#c9a227");
+        showToast(`💾 Saved to slot ${slot + 1}${slotLabel}`, "#c9a227");
       } else {
         showToast("⚠ Save failed", "#d43020");
       }
@@ -1039,38 +980,18 @@ export default function DMCockpit() {
     }catch(err){setSessMsg("⚠ Invalid JSON — "+err.message);setTimeout(()=>setSessMsg(""),3500);return false;}
   };
   const loadFromSlot=async(slotIndex)=>{
-    let p: any = null;
-    
-    // Try Cloud first
-    if (user) {
-      try {
-        const docRef = doc(db, `users/${user.uid}/saves`, slotIndex.toString());
-        const snap = await getDoc(docRef);
-        if (snap.exists()) {
-          p = snap.data();
-          showToast("✓ Loaded from Cloud", "#28a040");
-        }
-      } catch (e) { console.error("Cloud load error", e); }
-    }
-
-    // Fallback to Local
-    if (!p) {
-      const slot=await readSlot(slotIndex);
-      if(!slot||slot.corrupted){showToast("⚠ Slot "+(slotIndex+1)+" is corrupted","#d43020");return;}
-      p=slot.payload;
-      showToast("✓ Loaded from device", "#28a040");
-    }
-
+    const slot=await readSlot(slotIndex);
+    if(!slot||slot.corrupted){showToast("⚠ Slot "+(slotIndex+1)+" is corrupted","#d43020");return;}
+    const p=slot.payload;
     try{
       if(p.players)setPlayers(p.players.map(pl=>({...mkPlayer(),...pl,abilities:pl.abilities||[],notes:pl.notes||"",spellNames:pl.spellNames||["","",""],rollNote:pl.rollNote||""})));
       if(p.enemies)setEnemies(p.enemies.map(e=>({...e,abilities:e.abilities||[]})));
       if(p.log)setLog(p.log);
-      if(p.chapters)setChapters(p.chapters);
-      if(p.activeChapterId)setActiveChapterId(p.activeChapterId);
       if(p.order&&p.order.length>0){setOrder(p.order);setTurn(p.turn??0);setCombat(p.combat??false);}
       else{setCombat(false);setOrder([]);setTurn(0);}
+      // Loading stays independent of next auto-save slot for now
       setLastAutoSave(p.savedAt);
-      await refreshSlotMeta();
+      showToast("✓ Loaded slot "+(slotIndex+1),"#28a040");
     }catch(err){showToast("⚠ Load failed: "+err.message,"#d43020");}
   };
 
@@ -1575,10 +1496,7 @@ export default function DMCockpit() {
                   {s.corrupted&&<><div className="slot-time" style={{color:"#e06060"}}>⚠ Corrupted</div><div className="slot-detail">{s.reason}</div></>}
                   {s.valid&&<>
                     <div className="slot-time">{fmtTime(s.savedAt)}</div>
-                    <div className="slot-detail">
-                      {s.players}p · {s.enemies}e · {s.log} log entries
-                      {(s as any).isCloud && <span style={{color:"var(--gold2)", marginLeft:8}}>☁ CLOUD</span>}
-                    </div>
+                    <div className="slot-detail">{s.players}p · {s.enemies}e · {s.log} log entries</div>
                   </>}
                 </div>
                 <div style={{display:"flex", gap:4}}>
@@ -1901,26 +1819,9 @@ export default function DMCockpit() {
               onClick={()=>setShowHints(v=>!v)} title="Toggle Help Mode">
               {showHints?"💡 HINTS ON":"💡 HINTS OFF"}
             </button>
-            <div className="auth-trigger" style={{display:"flex", alignItems:"center", gap:8}}>
-              {loadingAuth ? (
-                <div style={{fontSize:".6rem", opacity:.5}}>...</div>
-              ) : user ? (
-                <div style={{display:"flex", alignItems:"center", gap:10}}>
-                  <div style={{textAlign:"right", display:(pc?"block":"none")}}>
-                    <div style={{fontSize:".45rem", opacity:.5}}>DESCENDED</div>
-                    <div style={{fontSize:".7rem", color:"var(--gold)"}}>{user.displayName || user.email?.split('@')[0]}</div>
-                  </div>
-                  <button className="layout-btn" onClick={() => auth.signOut()} style={{fontSize:".6rem"}}>LOGOUT</button>
-                </div>
-              ) : (
-                <button className="layout-btn btn-gld" onClick={() => setShowAuth(true)} style={{fontSize:".6rem", padding:"6px 12px"}}>SIGN IN</button>
-              )}
-            </div>
             <button className="layout-btn" onClick={()=>setPc(v=>!v)}>{pc?"📱":"🖥"}</button>
           </div>
         </div>
-
-        <AuthModal isOpen={showAuth} onClose={() => setShowAuth(false)} />
 
         {/* PERSISTENT COMBAT HUD */}
         {combat && cur && (
