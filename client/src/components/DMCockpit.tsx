@@ -727,6 +727,16 @@ export default function DMCockpit() {
   const [lastAutoSave, setLastAutoSave] = useState<string | null>(null);
   const [nextAutoSlot, setNextAutoSlot] = useState(3); // Start at Slot 4 (index 3)
   const [showHints, setShowHints] = useState(false); // Beginner Mode
+  const [shortcuts, setShortcuts] = useState({
+    nextTurn: 'n',
+    dice: 'd',
+    chronicles: 'c',
+    party: 'p',
+    session: 's',
+    combat: 'x',
+    map: 'm',
+  });
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [toastMsg, setToastMsg] = useState<ToastMessage | null>(null);
   const [slotMeta, setSlotMeta] = useState<SlotMeta[]>(Array.from({ length: NUM_SLOTS }, (_, i) => ({ index: i, empty: true })));
 
@@ -1092,16 +1102,18 @@ export default function DMCockpit() {
       if (["INPUT", "TEXTAREA"].includes((document.activeElement as HTMLElement)?.tagName)) return;
 
       const key = e.key.toLowerCase();
-      if (key === "n" && combat) { e.preventDefault(); nextTurn ? nextTurn() : null; }
-      if (key === "d") { e.preventDefault(); setTab("dice"); }
-      if (key === "c") { e.preventDefault(); setTab("chronicles"); }
-      if (key === "p") { e.preventDefault(); setTab("party"); }
-      if (key === "s") { e.preventDefault(); setTab("session"); }
-      if (key === "h") { e.preventDefault(); setShowHints(h => !h); }
+      if (key === 'h') { e.preventDefault(); setShowHints(h => !h); } // Always H for hints
+      if (key === shortcuts.nextTurn && combat) { e.preventDefault(); nextTurn ? nextTurn() : null; }
+      if (key === shortcuts.dice) { e.preventDefault(); setTab("dice"); }
+      if (key === shortcuts.chronicles) { e.preventDefault(); setTab("chronicles"); }
+      if (key === shortcuts.party) { e.preventDefault(); setTab("party"); }
+      if (key === shortcuts.session) { e.preventDefault(); setTab("session"); }
+      if (key === shortcuts.combat) { e.preventDefault(); setTab("combat"); }
+      if (key === shortcuts.map) { e.preventDefault(); setTab("map"); }
     };
     window.addEventListener("keydown", handleKD);
     return () => window.removeEventListener("keydown", handleKD);
-  }, [combat, nextTurn]);
+  }, [combat, nextTurn, shortcuts]);
 
   const deleteSlot = async (slotIndex) => {
     await deleteSlotStorage(slotIndex);
@@ -2158,12 +2170,13 @@ export default function DMCockpit() {
             <div className="tb-t">⚜ DM Grimoire</div>
             <div className="tb-s">{players.length}p · {enemies.length}e · {combat ? "⚔ combat" : "at rest"}</div>
           </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             <button className={`layout-btn ${showHints ? "on" : ""}`}
               style={showHints ? { background: "rgba(201,162,39,.2)", color: "var(--gold2)" } : {}}
-              onClick={() => setShowHints(v => !v)} title="Toggle Help Mode">
+              onClick={() => setShowHints(v => !v)} title="Toggle Help Mode (Press key)">
               {showHints ? "💡 HINTS ON" : "💡 HINTS OFF"}
             </button>
+            <button className="layout-btn" onClick={() => setSettingsOpen(true)} title="Keyboard Shortcuts">⚙ SETTINGS</button>
             <button className="layout-btn" onClick={() => setPc(v => !v)}>{pc ? "📱" : "🖥"}</button>
           </div>
         </div>
@@ -2326,6 +2339,79 @@ export default function DMCockpit() {
                 </button>
                 <button style={{ fontFamily: "'Cinzel',serif", fontSize: ".65rem", letterSpacing: ".1em", padding: "11px 16px", borderRadius: 6, cursor: "pointer", background: "transparent", border: "1.5px solid rgba(201,162,39,.3)", color: "var(--gold)", minHeight: 44 }}
                   onClick={() => setSaveModal(null)}>Close</button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* SETTINGS MODAL */}
+        {settingsOpen && (
+          <div className="modal-bg" onClick={() => setSettingsOpen(false)}>
+            <div className="modal-box" style={{ maxWidth: 420 }} onClick={e => e.stopPropagation()}>
+              <div className="modal-hdr">
+                <span className="modal-ttl">⚙ KEYBOARD SHORTCUTS</span>
+                <button className="modal-close" onClick={() => setSettingsOpen(false)}>✕</button>
+              </div>
+              <div style={{ padding: "14px 16px" }}>
+                <div style={{ fontFamily: "Crimson Text", fontStyle: "italic", fontSize: ".75rem", color: "rgba(244,228,193,.45)", marginBottom: 12 }}>
+                  Click on a key and press any letter to change the shortcut.
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                  {Object.entries(shortcuts).map(([action, key]) => (
+                    <div key={action} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 10px", background: "rgba(201,162,39,.05)", borderRadius: 6, border: "1px solid rgba(201,162,39,.15)" }}>
+                      <span style={{ fontFamily: "Cinzel", fontSize: ".55rem", color: "rgba(201,162,39,.7)", letterSpacing: ".1em", flex: 1, textTransform: "capitalize" }}>
+                        {action.replace(/([A-Z])/g, ' $1').trim()}
+                      </span>
+                      <input
+                        type="text"
+                        maxLength={1}
+                        value={key}
+                        onChange={e => {
+                          const newVal = e.target.value.toLowerCase();
+                          if (newVal.match(/^[a-z]$/)) {
+                            setShortcuts(prev => ({ ...prev, [action]: newVal }));
+                          } else if (newVal === '') {
+                            setShortcuts(prev => ({ ...prev, [action]: '' }));
+                          }
+                        }}
+                        style={{
+                          width: 32,
+                          height: 32,
+                          textAlign: "center",
+                          fontFamily: "Cinzel",
+                          fontSize: ".85rem",
+                          fontWeight: 700,
+                          background: "rgba(201,162,39,.15)",
+                          border: "1.5px solid rgba(201,162,39,.35)",
+                          borderRadius: 5,
+                          color: "var(--gold)",
+                          outline: "none",
+                          cursor: "pointer",
+                        }}
+                      />
+                    </div>
+                  ))}
+                </div>
+                <div style={{ marginTop: 14, display: "flex", gap: 8 }}>
+                  <button
+                    style={{ flex: 1, fontFamily: "'Cinzel',serif", fontSize: ".6rem", letterSpacing: ".1em", padding: "10px", borderRadius: 6, cursor: "pointer", background: "rgba(201,162,39,.15)", border: "1.5px solid rgba(201,162,39,.35)", color: "var(--gold)", minHeight: 40 }}
+                    onClick={() => setShortcuts({
+                      nextTurn: 'n',
+                      dice: 'd',
+                      chronicles: 'c',
+                      party: 'p',
+                      session: 's',
+                      combat: 'x',
+                      map: 'm',
+                    })}>
+                    ↻ Reset Defaults
+                  </button>
+                  <button
+                    style={{ fontFamily: "'Cinzel',serif", fontSize: ".6rem", letterSpacing: ".1em", padding: "10px 16px", borderRadius: 6, cursor: "pointer", background: "transparent", border: "1.5px solid rgba(201,162,39,.3)", color: "var(--gold)", minHeight: 40 }}
+                    onClick={() => setSettingsOpen(false)}>
+                    Close
+                  </button>
+                </div>
               </div>
             </div>
           </div>
