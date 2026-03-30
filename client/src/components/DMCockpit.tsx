@@ -1044,7 +1044,7 @@ export default function DMCockpit() {
   /* ── session ── */
   const saveGame = () => {
     performSave(true);  // async, fire and forget — toast will confirm
-    const data = { version: SAVE_VERSION, savedAt: new Date().toISOString(), players, enemies, log: log.slice(-30), diceHistory: diceHist.slice(0, 8) };
+    const data = { version: SAVE_VERSION, savedAt: new Date().toISOString(), players, enemies, log: log.slice(-30), chapters, activeChapterId, diceHistory: diceHist.slice(0, 8) };
     setSaveModal(JSON.stringify(data, null, 2));
   };
   const loadGame = (jsonStr) => {
@@ -1055,6 +1055,10 @@ export default function DMCockpit() {
       setPlayers(d.players.map(p => ({ ...mkPlayer(), ...p, abilities: p.abilities || [], notes: p.notes || "", spellNames: p.spellNames || ["", "", ""], rollNote: p.rollNote || "" })));
       if (d.enemies) setEnemies(d.enemies.map(e => ({ ...e, abilities: e.abilities || [] })));
       if (d.log) setLog(d.log);
+      if (d.chapters && d.chapters.length > 0) {
+        setChapters(d.chapters);
+        setActiveChapterId(d.activeChapterId ?? d.chapters[0].id);
+      }
       if (d.diceHistory) setDiceHist(d.diceHistory);
       setCombat(false); setOrder([]); setTurn(0);
       setSessMsg("Session loaded! ✓"); setTimeout(() => setSessMsg(""), 2500);
@@ -1069,8 +1073,13 @@ export default function DMCockpit() {
       if (p.players) setPlayers(p.players.map(pl => ({ ...mkPlayer(), ...pl, abilities: pl.abilities || [], notes: pl.notes || "", spellNames: pl.spellNames || ["", "", ""], rollNote: pl.rollNote || "" })));
       if (p.enemies) setEnemies(p.enemies.map(e => ({ ...e, abilities: e.abilities || [] })));
       if (p.log) setLog(p.log);
+      if (p.chapters && p.chapters.length > 0) {
+        setChapters(p.chapters);
+        setActiveChapterId(p.activeChapterId ?? p.chapters[0].id);
+      }
       if (p.order && p.order.length > 0) { setOrder(p.order); setTurn(p.turn ?? 0); setCombat(p.combat ?? false); }
       else { setCombat(false); setOrder([]); setTurn(0); }
+      if (p.mapState) setMapState(p.mapState);
       // Loading stays independent of next auto-save slot for now
       setLastAutoSave(p.savedAt);
       showToast("✓ Loaded slot " + (slotIndex + 1), "#28a040");
